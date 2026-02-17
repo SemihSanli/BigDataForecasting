@@ -21,8 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Repositories\" />
-    <Folder Include="Services\" />
+    <Folder Include="Services\BaseServices\GameServices\" />
+    <Folder Include="Services\BaseServices\LibraryServices\" />
+    <Folder Include="Services\BaseServices\AuthServices\" />
+    <Folder Include="Services\BaseServices\WishlistServices\" />
+    <Folder Include="Services\MLServices\" />
   </ItemGroup>
 
 </Project>
