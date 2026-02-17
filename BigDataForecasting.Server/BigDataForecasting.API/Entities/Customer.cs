@@ -57,5 +57,7 @@ namespace BigDataForecasting.API.Entities
         // Navigation Property (İleride Sales tablosu ile ilişki için)
         // public ICollection<Sale> Sales { get; set; }
         public ICollection<Sale> Sales { get; set; }
+        public ICollection<WhishList> WhishLists { get; set; }
+        public ICollection<UserActivity>UserActivities { get; set; }
     }
 }

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace BigDataForecasting.API.Entities
@@ -21,8 +21,14 @@ namespace BigDataForecasting.API.Entities
 
         public string CoverImageUrl { get; set; }
 
-        // İlişkiler (Bir oyun, binlerce kez satılmış olabilir)
-        public  ICollection<Sale> Sales { get; set; }
+        // 1:1 Navigation Property (FK karşı tarafta)
+        public GameStat? GameStat { get; set; }
+        public GameDetail? GameDetail { get; set; }
+
+        // 1:N Navigation Property (Collection)
+        public ICollection<Sale> Sales { get; set; }
         public ICollection<GameCategory> GameCategories { get; set; }
+        public ICollection<WhishList> WhishLists { get; set; }
+        public ICollection<PriceHistory> PriceHistories { get; set; }
     }
 }
