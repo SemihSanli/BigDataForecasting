@@ -9,7 +9,7 @@ namespace BigDataForecasting.API.Repositories
     {
         private readonly AppDbContext _appDbContext;
         private readonly DbSet<T> _dbSet;
-        public GenericRepository(AppDbContext appDbContext, DbSet<T> dbSet)
+        public GenericRepository(AppDbContext appDbContext)
         {
             _appDbContext = appDbContext;
             _dbSet = appDbContext.Set<T>();
@@ -25,14 +25,14 @@ namespace BigDataForecasting.API.Repositories
             return await _dbSet.AnyAsync(predicate);
         }
 
-        public void DeleteAsync(T entity)
+        public void Delete(T entity)
         {
             _dbSet.Remove(entity);
         }
 
         public IQueryable<T> GetAll(bool tracking = false)
         {
-            return tracking ? _dbSet : _dbSet.AsTracking();
+            return tracking ? _dbSet : _dbSet.AsNoTracking();
         }
 
         public async Task<T> GetByIdAsync(int id)
