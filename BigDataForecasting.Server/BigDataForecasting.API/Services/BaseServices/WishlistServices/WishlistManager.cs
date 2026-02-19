@@ -18,11 +18,19 @@ namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
 
         public async Task AddToWhishlistAsync(int customerId, int gameId)
         {
+              //Oyun var mı kontrol et
+            var gameExists = await _appDbContext.Games.AnyAsync(g => g.GameId == gameId);
+            if(!gameExists)
+                throw new Exception("Bu oyun mevcut değil.");
+
+            //Kullanıcının istek listesinde zaten ekli mi kontrol et
+
             var exists = await _whishlistRepository.AnyAsync(
                  w => w.CustomerId == customerId && w.GameId == gameId);
             if (exists)
                 throw new Exception("Bu oyun zaten istek listenizde.");
 
+            //istek listesine ekle
             var whishlistItem = new WhishList
             {
                 CustomerId = customerId,
@@ -45,6 +53,7 @@ namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
 
         public async Task<List<ResultWishListDto>> GetUserWhishlistAsync(int customerId)
         {
+            //Kullanıcıya göre istek listesini getir en son ekleme tarihine göre
             return await _whishlistRepository.Where(w => w.CustomerId == customerId)
                .Select(w => new ResultWishListDto
                {
@@ -62,6 +71,7 @@ namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
 
         public async Task RemoveFromWhishlistAsync(int customerId, int gameId)
         {
+            //istek listesinden kaldırmadan önce ürün var mı kontrol et sonra kaldır
             var whishlistItem = await _whishlistRepository
                    .Where(w => w.CustomerId == customerId && w.GameId == gameId, tracking: true)
                    .FirstOrDefaultAsync();
