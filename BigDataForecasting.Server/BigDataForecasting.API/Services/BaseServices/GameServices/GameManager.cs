@@ -50,5 +50,22 @@ namespace BigDataForecasting.API.Services.BaseServices.GameServices
                     GameCategories = g.GameCategories.Select(gc => gc.GameCategoryName).ToList()
                 }).FirstOrDefaultAsync();
         }
+
+        public async Task<List<GamesWithCategoryDto>> GetGamesWithCategoryAsync()
+        {
+           return await _gameRepository.GetAll()
+                .Include(gc=>gc.GameCategories)
+                .Select(g=> new GamesWithCategoryDto
+                {
+                    GameId = g.GameId,
+                    GameName = g.GameName,
+                    Description = g.Description,
+                    Genre = g.Genre,
+                    Price = g.Price,
+                    CoverImageUrl = g.CoverImageUrl,
+                    GameCategoryId = g.GameCategories.FirstOrDefault() != null ? g.GameCategories.FirstOrDefault().GameCategoryId : 0,
+                    GameCategoryName = g.GameCategories.FirstOrDefault() != null ? g.GameCategories.FirstOrDefault().GameCategoryName : null
+                }).ToListAsync();
+        }
     }
 }
