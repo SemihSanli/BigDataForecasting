@@ -758,6 +758,7 @@
           }
         }
       },
+<<<<<<< HEAD
       "Microsoft.ML/5.0.0": {
         "dependencies": {
           "Microsoft.Bcl.AsyncInterfaces": "9.0.4",
@@ -1006,6 +1007,8 @@
           }
         }
       },
+=======
+>>>>>>> 920a3241f25b194a0bcbdee52517102ac0ce1ef1
       "Microsoft.OpenApi/2.4.1": {
         "runtime": {
           "lib/net8.0/Microsoft.OpenApi.dll": {
@@ -1487,6 +1490,7 @@
       "path": "microsoft.identitymodel.tokens/8.16.0",
       "hashPath": "microsoft.identitymodel.tokens.8.16.0.nupkg.sha512"
     },
+<<<<<<< HEAD
     "Microsoft.ML/5.0.0": {
       "type": "package",
       "serviceable": true,
@@ -1532,6 +1536,11 @@
     "Microsoft.OpenApi/2.4.1": {
       "type": "package",
       "serviceable": true,
+=======
+    "Microsoft.OpenApi/2.4.1": {
+      "type": "package",
+      "serviceable": true,
+>>>>>>> 920a3241f25b194a0bcbdee52517102ac0ce1ef1
       "sha512": "sha512-u7QhXCISMQuab3flasb1hoaiERmUqyWsW7tmQODyILoQ7mJV5IRGM+2KKZYo0QUfC13evEOcHAb6TPWgqEQtrw==",
       "path": "microsoft.openapi/2.4.1",
       "hashPath": "microsoft.openapi.2.4.1.nupkg.sha512"

@@ -165,6 +165,7 @@ C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\obj
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\obj\Debug\net10.0\BigDataForecasting.API.pdb
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\obj\Debug\net10.0\BigDataForecasting.API.genruntimeconfig.cache
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\obj\Debug\net10.0\ref\BigDataForecasting.API.dll
+<<<<<<< HEAD
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\Microsoft.Extensions.ML.dll
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\Microsoft.ML.Core.dll
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\Microsoft.ML.Data.dll
@@ -226,3 +227,5 @@ C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\tr-TR\Hangfire.Core.resources.dll
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\zh-TW\Hangfire.Core.resources.dll
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\zh\Hangfire.Core.resources.dll
+=======
+>>>>>>> 920a3241f25b194a0bcbdee52517102ac0ce1ef1
