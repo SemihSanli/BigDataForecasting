@@ -1,0 +1,31 @@
+﻿using BigDataForecasting.API.Services.BaseServices.CustomerServices;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+
+namespace BigDataForecasting.API.Controllers
+{
+    [Route("api/[controller]")]
+    [ApiController]
+    public class CustomersController : ControllerBase
+    {
+        private readonly ICustomerService _customerService;
+
+        public CustomersController(ICustomerService customerService)
+        {
+            _customerService = customerService;
+        }
+
+        [HttpGet("ActiveCustomers")]
+        public async Task<IActionResult> GetActiveCustomers()
+        {
+            var activeCustomersCount = await _customerService.GetActiveUsersAsync();
+            return Ok(activeCustomersCount);
+        }
+        [HttpGet("WalletBalance")]
+        public async Task<IActionResult> GetWalletBalance()
+        {
+            var walletBalance = await _customerService.GetWalletBalanceAsync();
+            return Ok(walletBalance);
+        }
+    }
+}

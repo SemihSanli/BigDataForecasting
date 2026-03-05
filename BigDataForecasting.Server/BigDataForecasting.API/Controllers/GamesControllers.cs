@@ -21,8 +21,14 @@ namespace BigDataForecasting.API.Controllers
             var games = await _gameService.GetAllGameAsync();
             return Ok(games);
         }
+        [HttpGet("GamesWithCategories")]
+        public async Task<IActionResult> GetGamesWithCategories()
+        {
+            var gamesWithCategories = await _gameService.GetGamesWithCategoryAsync();   
+            return Ok(gamesWithCategories);
+        }
 
-      
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> GetGameDetail(int id)
         {
