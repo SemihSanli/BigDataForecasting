@@ -31,6 +31,16 @@ namespace BigDataForecasting.API.Services.BaseServices.GameServices
                 .ToListAsync();
         }
 
+        public async Task<List<GetAllGamesWithBasicDetailsDto>> GetAllGamesWithBasicDetail()
+        {
+           return await _gameRepository.GetAll()
+                .Select(g => new GetAllGamesWithBasicDetailsDto
+                {
+                    GameId = g.GameId,
+                    GameName = g.GameName
+                }).ToListAsync();
+        }
+
         public async Task<ResultGamedetailDto?> GetGameDetailAsync(int gameId)
         {
             return await _gameRepository.Where(g => g.GameId == gameId)

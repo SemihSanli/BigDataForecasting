@@ -1,4 +1,5 @@
-﻿using BigDataForecasting.API.Dtos.SaleDtos;
+﻿using BigDataForecasting.API.Dtos.MLDtos;
+using BigDataForecasting.API.Dtos.SaleDtos;
 using BigDataForecasting.API.Entities;
 using BigDataForecasting.API.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,19 @@ namespace BigDataForecasting.API.Services.BaseServices.SaleServices
                 .ToListAsync();
         }
 
+        public async Task<List<GameRecommendationInput>> GetGameRecommendationDataAsync()
+        {
+            return await _saleRepository.GetAll()
+          .AsNoTracking()
+          .Select(s => new GameRecommendationInput
+          {
+              CustomerId = (uint)s.CustomerId, // ML.NET bu algoritmada uint bekler
+              GameId = (uint)s.GameId,
+              Label = (float)s.Rating // 0 ile 5 arasındaki gerçek değerlendirme puanı
+          })
+          .ToListAsync();
+        }
+
         public async Task<LastYearSalesReportDto> GetLastYearSalesReportAsync()
         {
             var lastYear = DateTime.Now.AddYears(-1);
@@ -96,6 +110,34 @@ namespace BigDataForecasting.API.Services.BaseServices.SaleServices
                 TotalRevenue = x.TotalRevenue
             }).ToList();
             return result;
+        }
+
+        public async Task<List<GetCustomerOwnedGames>> GetOwnedGameByMultipleCustomerAsync(List<int> customerIds)
+        {
+            return await _saleRepository.GetAll()
+          .AsNoTracking()
+          .Where(s => customerIds.Contains((int)s.CustomerId))
+          .Select(s => new GetCustomerOwnedGames
+          {
+              CustomerId = (int)s.CustomerId,
+              GameId = s.GameId
+          })
+          .Distinct()
+          .ToListAsync();
+        }
+
+        public async Task<List<GetOwnedGameIdByCustomerDto>> GetOwnedGameIdsByCustomerAsync(int customerId)
+        {
+            return await _saleRepository.GetAll()
+                .AsNoTracking()
+                .Where(s => s.CustomerId == customerId)
+                .Select(s => s.GameId) 
+                .Distinct()           
+                .Select(id => new GetOwnedGameIdByCustomerDto
+                {
+                    GameId = id        
+                })
+                .ToListAsync();
         }
 
         public async Task<List<SalesDistributionByGenre>> GetSalesDistributionByGenreAsync()

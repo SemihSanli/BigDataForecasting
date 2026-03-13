@@ -1,4 +1,5 @@
-﻿using BigDataForecasting.API.Dtos.SaleDtos;
+﻿using BigDataForecasting.API.Dtos.MLDtos;
+using BigDataForecasting.API.Dtos.SaleDtos;
 
 namespace BigDataForecasting.API.Services.BaseServices.SaleServices
 {
@@ -10,5 +11,8 @@ namespace BigDataForecasting.API.Services.BaseServices.SaleServices
         Task<List<MonthlySalesDto>> GetMonthlySalesAsync();
         Task<List<Top5GameSaleDto>> GetTop5BestSellingGamesAsync();
         Task<List<SalesDistributionByGenre>> GetSalesDistributionByGenreAsync();
+        Task<List<GameRecommendationInput>> GetGameRecommendationDataAsync();
+        Task<List<GetOwnedGameIdByCustomerDto>> GetOwnedGameIdsByCustomerAsync(int customerId);
+        Task<List<GetCustomerOwnedGames>> GetOwnedGameByMultipleCustomerAsync(List<int> customerIds);
     }
 }

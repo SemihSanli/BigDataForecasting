@@ -1,0 +1,9 @@
+﻿namespace BigDataForecasting.API.Dtos.GameDtos
+{
+    public class AdminUserRecommendationResultDto
+    {
+        public int GameId { get; set; }
+        public string GameName { get; set; }
+        public float RecommendationScore { get; set; }
+    }
+}
