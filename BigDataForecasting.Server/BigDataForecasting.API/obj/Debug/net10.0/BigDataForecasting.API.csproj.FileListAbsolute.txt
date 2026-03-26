@@ -240,3 +240,5 @@ C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\runtimes\win-arm64\native\MatrixFactorizationNative.dll
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\runtimes\win-x64\native\MatrixFactorizationNative.dll
 C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\runtimes\win-x86\native\MatrixFactorizationNative.dll
+C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\Prometheus.NetStandard.dll
+C:\Users\Semih\source\repos\BigDataForecasting.Server\BigDataForecasting.API\bin\Debug\net10.0\Prometheus.AspNetCore.dll

@@ -27,5 +27,19 @@ namespace BigDataForecasting.API.Controllers
             var walletBalance = await _customerService.GetWalletBalanceAsync();
             return Ok(walletBalance);
         }
+
+        [HttpGet("customer-full-details")]
+        public async Task<IActionResult> GetCustomersWithDetails(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? searchTerm = null,
+            [FromQuery] string? sortBy = null)
+        {
+           
+            var customers = await _customerService.GetAllCustomersWithFullDetailsAsync(pageNumber, pageSize, searchTerm, sortBy);
+
+          
+            return Ok(customers);
+        }
     }
 }

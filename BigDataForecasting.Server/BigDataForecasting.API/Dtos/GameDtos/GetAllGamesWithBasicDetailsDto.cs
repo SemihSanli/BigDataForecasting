@@ -4,5 +4,6 @@
     {
         public int GameId { get; set; }
         public string GameName { get; set; }
+        public string? CoverImageUrl { get; set; }
     }
 }

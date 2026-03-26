@@ -1,4 +1,4 @@
-﻿
+
 using BigDataForecasting.API.Dtos.CustomerDtos;
 using BigDataForecasting.API.Dtos.MLDtos;
 using BigDataForecasting.API.Entities;
@@ -22,6 +22,93 @@ namespace BigDataForecasting.API.Services.BaseServices.CustomerServices
             return await _customerRepository.GetAll()
                  .Where(c => c.IsActive == true)
                  .CountAsync();
+        }
+
+        public async Task<List<GetAllActiveStatusCustomerDto>> GetAllActiveStatusCustomersAsync()
+        {
+            return await _customerRepository.GetAll()
+                 .AsNoTracking()
+                .Where(s => s.IsActive == true)
+               .Select(c => new GetAllActiveStatusCustomerDto
+               {
+                   CustomerId = c.CustomerId,
+                   UserName = c.UserName,
+                   ProfileImageUrl = c.ProfileImageUrl,
+                   TotalSpent = (float)c.Sales.Sum(s => s.SoldPrice),
+                   TotalGames = c.Sales.Count(),
+                   WalletBalance = c.WalletBalance
+               })
+               .ToListAsync();
+
+        }
+
+        public async Task<List<FullCustomerDetailDto>> GetAllCustomersWithFullDetailsAsync(int pageNumber = 1, int pageSize = 10, string? searchTerm = null, string? sortBy = null)
+        {
+            var query = _customerRepository.GetAll().AsNoTracking().Where(c => c.IsActive);
+
+            // 2. FİLTRELEME (Arama çubuğu)
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                searchTerm = searchTerm.ToLower();
+                query = query.Where(c =>
+                    c.UserName.ToLower().Contains(searchTerm) ||
+                    c.Email.ToLower().Contains(searchTerm) ||
+                    (c.FirstName != null && c.FirstName.ToLower().Contains(searchTerm)) ||
+                    (c.LastName != null && c.LastName.ToLower().Contains(searchTerm))
+                );
+            }
+
+            // 3. SIRALAMA
+            query = sortBy?.ToLower() switch
+            {
+                "balance_desc" => query.OrderByDescending(c => c.WalletBalance),
+                "date_desc" => query.OrderByDescending(c => c.CreatedDate),
+                "playtime_desc" => query.OrderByDescending(c => c.Sales.Sum(s => s.PlayTimeHours)), // En çok oynayan "No-Life" tayfa
+                "gamecount_desc" => query.OrderByDescending(c => c.Sales.Count()), // Kütüphanesi en kabarık "Balinalar"
+                _ => query.OrderByDescending(c => c.CustomerId) // Default
+            };
+
+            // 4. SAYFALAMA VE TEK SQL İLE PROJECTION (Include YOK!)
+            return await query
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .Select(c => new FullCustomerDetailDto
+                {
+                    CustomerId = c.CustomerId,
+                    UserName = c.UserName,
+                    Email = c.Email,
+                    FullName = c.FirstName + " " + c.LastName,
+                    ProfileImageUrl = c.ProfileImageUrl,
+                    CountryCode = c.CountryCode,
+                    WalletBalance = c.WalletBalance,
+                    CreatedDate = c.CreatedDate,
+
+                    // Alt tablolardan istatistikleri SQL'de hesaplatıyoruz
+                    OwnedGameCount = c.Sales.Count(),
+                    WishlistGameCount = c.WhishLists.Count(), // Senin entity'deki isme (WhishLists) göre
+                    TotalPlayTimeHours = c.Sales.Any() ? c.Sales.Sum(s => s.PlayTimeHours) : 0,
+
+                    // Kullanıcının kütüphanesi (Satın aldığı oyunlar)
+                    Library = c.Sales.Select(s => new CustomerLibraryItemDto
+                    {
+                        GameId = s.GameId,
+                        GameName = s.Game.GameName,
+                        CoverImageUrl = s.Game.CoverImageUrl,
+                        PlayTimeHours = s.PlayTimeHours,
+                        PurchasePrice = s.SoldPrice,
+                        PurchaseDate = s.SaleDate
+                    }).ToList(),
+
+                    // Kullanıcının istek listesi
+                    Wishlist = c.WhishLists.Select(w => new CustomerWishListItemDto
+                    {
+                        GameId = w.GameId,
+                        GameName = w.Game.GameName,
+                        AddedDate = w.AddedDate
+                    }).ToList()
+
+                })
+                .ToListAsync();
         }
 
         public async Task<List<CustomerWithSalesDto>> GetAllCustomerWithSalesAsync(int pageNumber, int pageSize)
@@ -82,6 +169,21 @@ namespace BigDataForecasting.API.Services.BaseServices.CustomerServices
                 .ToListAsync();
         }
 
+        public async Task<List<CustomerByCountryCountDto>> GetCustomerCountByCountryAsync()
+        {
+            return await _customerRepository.GetAll()
+                .AsNoTracking()
+                .Where(c => c.IsActive == true) // Sadece aktif üyeleri al
+                .GroupBy(c => c.CountryCode)
+                .Select(g => new CustomerByCountryCountDto
+                {
+                    CountryCode = g.Key,
+                    CustomerCount = g.Count()
+                })
+                .OrderByDescending(x=>x.CustomerCount)
+                .ToListAsync();
+        }
+
         public async Task<List<CustomerWithSalesDto>> GetRandomCustomerAsync(int count)
         {
             return await _customerRepository.GetAll()
@@ -92,10 +194,13 @@ namespace BigDataForecasting.API.Services.BaseServices.CustomerServices
          .Select(c => new CustomerWithSalesDto
          {
              CustomerId = c.CustomerId,
-             UserName = c.UserName
+             UserName = c.UserName,
+             ProfileImageUrl = c.ProfileImageUrl
          })
          .ToListAsync();
         }
+
+    
 
         //public async Task<CustomerWithSalesDto> GetCustomerWithSalesByIdDto(int customerId)
         //{

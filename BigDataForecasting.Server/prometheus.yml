@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'dotnet-api'
+    static_configs:
+      # host.docker.internal sayesinde Docker, senin bilgisayarına erişebilir.
+      # Port 7198 ise senin local API'nin portu (Swagger'da neyse o yap).
+      - targets: ['host.docker.internal:5069']

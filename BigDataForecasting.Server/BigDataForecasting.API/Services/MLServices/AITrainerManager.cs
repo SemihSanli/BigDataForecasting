@@ -1,4 +1,4 @@
-﻿using BigDataForecasting.API.Dtos.CustomerDtos;
+using BigDataForecasting.API.Dtos.CustomerDtos;
 using BigDataForecasting.API.Dtos.GameDtos;
 using BigDataForecasting.API.Dtos.MLDtos;
 using BigDataForecasting.API.Entities;
@@ -27,58 +27,59 @@ namespace BigDataForecasting.API.Services.MLServices
             _gameService = gameService;
         }
 
-        //public async  Task<List<AdminCLTVResultDto>> GetCLTVPredictionsForAllCustomersAsync()
-        //{
-        //    var mlContext = new MLContext();
-        //    var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "CLTVModel.zip");
+        public async Task<List<AdminCLTVResultDto>> GetCLTVPredictionsForAllCustomersAsync()
+        {
+            var mlContext = new MLContext();
+            var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "CLTVModel.zip");
 
-        //    if (!File.Exists(modelPath))
-        //        throw new FileNotFoundException("CLTV modeli henüz eğitilmemiş! Önce Train işlemini yapınız.");
+            if (!File.Exists(modelPath))
+                throw new FileNotFoundException("CLTV modeli henüz eğitilmemiş! Önce Train işlemini yapınız.");
 
-        //    // 1. Modeli yükle ve Tahmin Motorunu (Engine) oluştur
-        //    var model = mlContext.Model.Load(modelPath, out var modelSchema);
-        //    var predictionEngine = mlContext.Model.CreatePredictionEngine<CLTVInput, CLTVPrediction>(model);
+            // 1. Modeli yükle ve Tahmin Motorunu (Engine) oluştur
+            var model = mlContext.Model.Load(modelPath, out var modelSchema);
+            var predictionEngine = mlContext.Model.CreatePredictionEngine<CLTVInput, CLTVPrediction>(model);
 
-        //    // 2. Tahmin yapılacak müşterileri getir (Performans için sadece gerekli alanlar)
-        //    // Bu metodu daha önce CustomerService içine yazdığını varsayıyorum
-        //    var customers = await _customerService.GetActiveUsersAsync();
+            // 2. Tahmin yapılacak müşterileri getir (Performans için sadece gerekli alanlar)
+            // Bu metodu daha önce CustomerService içine yazdığını varsayıyorum
+            var customers = await _customerService.GetAllActiveStatusCustomersAsync();
 
-        //    var results = new List<AdminCLTVResultDto>();
+            var results = new List<AdminCLTVResultDto>();
 
-        //    foreach (var customer in customers)
-        //    {
-        //        // AI'a müşterinin şu anki durumunu veriyoruz
-        //        var input = new CLTVInput
-        //        {
-        //            TotalMoneySpentSoFar = customer.TotalSpent,
-        //            TotalGamesBoughtSoFar = customer.TotalGames,
-        //            WalletBalance = (float)customer.WalletBalance
-        //        };
+            foreach (var customer in customers)
+            {
+                // AI'a müşterinin şu anki durumunu veriyoruz
+                var input = new CLTVInput
+                {
+                    TotalMoneySpentSoFar = customer.TotalSpent,
+                    TotalGamesBoughtSoFar = customer.TotalGames,
+                    WalletBalance = (float)customer.WalletBalance
+                };
 
-        //        // YAPAY ZEKA KEHANETİNİ YAPIYOR: "Bu adam bence şu kadar daha harcar"
-        //        var prediction = predictionEngine.Predict(input);
+                // YAPAY ZEKA KEHANETİNİ YAPIYOR: "Bu adam bence şu kadar daha harcar"
+                var prediction = predictionEngine.Predict(input);
 
-        //        // 3. Segmentasyon Mantığı (Business Logic)
-        //        string segment = prediction.PredictedFutureValue switch
-        //        {
-        //            > 2000 => "💎 VIP Müşteri",
-        //            > 1000 => "🌟 Sadık Müşteri",
-        //            > 500 => "📈 Potansiyeli Yüksek",
-        //            _ => "👤 Standart"
-        //        };
+                // 3. Segmentasyon Mantığı (Business Logic)
+                string segment = prediction.PredictedFutureValue switch
+                {
+                    > 2000 => "💎 VIP Müşteri",
+                    > 1000 => "🌟 Sadık Müşteri",
+                    > 500 => "📈 Potansiyeli Yüksek",
+                    _ => "👤 Standart"
+                };
 
-        //        results.Add(new AdminCLTVResultDto
-        //        {
-        //            CustomerId = customer.CustomerId,
-        //            UserName = customer.UserName,
-        //            PredictedFutureValue = (float)Math.Round(prediction.PredictedFutureValue, 2),
-        //            CustomerSegment = segment
-        //        });
-        //    }
+                results.Add(new AdminCLTVResultDto
+                {
+                    CustomerId = customer.CustomerId,
+                    UserName = customer.UserName,
+                    ProfileImageUrl = customer.ProfileImageUrl,
+                    PredictedFutureValue = (float)Math.Round(prediction.PredictedFutureValue, 2),
+                    CustomerSegment = segment
+                });
+            }
 
-        //    // En yüksek değerden başlayarak sırala (Admin'e en değerlileri önce gösterelim)
-        //    return results.OrderByDescending(x => x.PredictedFutureValue).ToList();
-        //}
+            // En yüksek değerden başlayarak sırala (Admin'e en değerlileri önce gösterelim)
+            return results.OrderByDescending(x => x.PredictedFutureValue).ToList();
+        }
 
         public async Task<List<AdminUserRecommendationResultDto>> GetGameRecommendationsForUserAsync(int customerId, int topN = 5)
         {
@@ -190,7 +191,8 @@ namespace BigDataForecasting.API.Services.MLServices
                         {
                             GameId = game.GameId,
                             GameName = game.GameName,
-                            RecommendationScore = prediction.Score
+                            RecommendationScore = prediction.Score,
+                            CoverImageUrl = game.CoverImageUrl
                         }, -prediction.Score);
                     }
                 }
@@ -205,11 +207,38 @@ namespace BigDataForecasting.API.Services.MLServices
                 {
                     CustomerId = customer.CustomerId,
                     UserName = customer.UserName,
+                    ProfileImageUrl = customer.ProfileImageUrl,
                     RecommendedGames = topRecommendations
                 });
             }
 
             return dashboardResult;
+        }
+
+        public async Task<GetTopCLTVDto> GetTopCLTVAsync()
+        {
+            var allPredictions = await GetCLTVPredictionsForAllCustomersAsync();
+
+            // 2. LINQ ile saniyeler içinde grupluyoruz
+            var summary = new GetTopCLTVDto
+            {
+                TotalCustomerCount = allPredictions.Count,
+                VipCount = allPredictions.Count(x => x.CustomerSegment == "💎 VIP Müşteri"),
+                LoyalCount = allPredictions.Count(x => x.CustomerSegment == "🌟 Sadık Müşteri"),
+                PotentialCount = allPredictions.Count(x => x.CustomerSegment == "📈 Potansiyeli Yüksek"),
+
+                // En yüksek değerli 5 VIP
+                TopVips = allPredictions
+                    .Where(x => x.CustomerSegment == "💎 VIP Müşteri")
+                    .Take(5).ToList(),
+
+                // En yüksek değerli 5 Potansiyel (Bunlara kampanya yapmak için)
+                TopPotentialCustomers = allPredictions
+                    .Where(x => x.CustomerSegment == "📈 Potansiyeli Yüksek")
+                    .Take(5).ToList()
+            };
+
+            return summary;
         }
 
         public async Task<List<RiskyCustomerResult>> GetTopRiskyCustomerAsync()

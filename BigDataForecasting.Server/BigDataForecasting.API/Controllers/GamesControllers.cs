@@ -37,5 +37,18 @@ namespace BigDataForecasting.API.Controllers
                 return NotFound();
             return Ok(game);
         }
+        [HttpGet("GetAllGamesWithDetails")]
+        public async Task<IActionResult> GetGames(
+            [FromQuery] int pageNumber = 1,
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? searchTerm = null,
+            [FromQuery] string? sortBy = null)
+        {
+            // Servise parametreleri yolla, düz List<FullGameDetailDto> gelsin
+            var games = await _gameService.GetAllGamesWithFullDetailsAsync(pageNumber, pageSize, searchTerm, sortBy);
+
+            // 200 OK statüsü ile frontend'e JSON olarak bas
+            return Ok(games);
+        }
     }
 }

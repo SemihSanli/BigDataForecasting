@@ -4,6 +4,7 @@ using BigDataForecasting.API.Repositories;
 using BigDataForecasting.API.Services.BaseServices.AuthServices;
 using BigDataForecasting.API.Services.BaseServices.CustomerServices;
 using BigDataForecasting.API.Services.BaseServices.GameServices;
+using BigDataForecasting.API.Services.BaseServices.GlobeAnalyticsServices;
 using BigDataForecasting.API.Services.BaseServices.SaleServices;
 using BigDataForecasting.API.Services.MLServices;
 using Hangfire;
@@ -12,6 +13,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.ML;
 using Microsoft.IdentityModel.Tokens;
+using Prometheus;
 using Scalar.AspNetCore;
 using System.Text;
 
@@ -44,6 +46,7 @@ builder.Services.AddScoped<IGameService, GameManager>();
 builder.Services.AddScoped<ISaleService, SaleManager>();
 builder.Services.AddScoped<ICustomerService, CustomerManager>();
 builder.Services.AddScoped<IAITrainerService, AITrainerManager>();
+builder.Services.AddScoped<IGlobeAnalyticsService, GlobeAnalyticsManager>();
 
 // Auth
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -64,7 +67,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 builder.Services.AddControllers();
-
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowNextjs", policy =>
+    {
+        policy.WithOrigins("http://localhost:3000") // Next.js'in çalıştığı varsayılan port
+              .AllowAnyHeader()
+              .AllowAnyMethod()
+              .AllowCredentials(); // Eğer ileride cookie/token kullanırsan hayat kurtarır
+    });
+});
 // ? Built-in OpenAPI (transformer YOK)
 builder.Services.AddOpenApi();
 
@@ -93,10 +105,15 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
+
+app.UseCors("AllowNextjs");
 
 app.UseAuthentication();
+
 app.UseAuthorization();
+
+app.UseHttpMetrics();
 
 app.MapControllers();
 using (var scope = app.Services.CreateScope())
@@ -108,6 +125,17 @@ using (var scope = app.Services.CreateScope())
     recurringJobManager.AddOrUpdate<IAITrainerService>(
         "AI_Model_Training_Full_Job",
         service => service.TrainAndSaveModelFromDbAsync(), 
-        Cron.Daily(3));
+        Cron.Daily(3,0));
+
+    recurringJobManager.AddOrUpdate<IAITrainerService>(
+         "AI_CLTV_Model_Training",
+         service => service.TrainCLTVModelAsync(),
+         Cron.Daily(3, 30));
+
+    recurringJobManager.AddOrUpdate<IAITrainerService>(
+        "AI_Recommendation_Model_Training",
+        service => service.TrainRecommendationModelAsync(),
+        Cron.Daily(4, 0));
 }
+app.MapMetrics();
 app.Run();

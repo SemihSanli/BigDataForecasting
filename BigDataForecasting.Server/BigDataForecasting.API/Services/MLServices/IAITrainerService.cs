@@ -16,5 +16,6 @@ namespace BigDataForecasting.API.Services.MLServices
         Task<List<DashboardRandomCustomerRecommendationDto>> GetRandomCustomerRecommendationsAsync();
         Task TrainCLTVModelAsync();
         Task<List<AdminCLTVResultDto>> GetCLTVPredictionsForAllCustomersAsync();
+        Task<GetTopCLTVDto> GetTopCLTVAsync();
     }
 }

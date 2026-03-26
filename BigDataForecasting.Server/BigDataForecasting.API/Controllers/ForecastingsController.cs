@@ -8,12 +8,12 @@ namespace BigDataForecasting.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    public class MLController : ControllerBase
+    public class ForecastingsController : ControllerBase
     {
         private readonly IAITrainerService _aiTrainerService;
         private readonly ICustomerService _customerService;
 
-        public MLController(IAITrainerService aiTrainerService, ICustomerService customerService)
+        public ForecastingsController(IAITrainerService aiTrainerService, ICustomerService customerService)
         {
             _aiTrainerService = aiTrainerService;
             _customerService = customerService;
@@ -22,7 +22,7 @@ namespace BigDataForecasting.API.Controllers
         [HttpPost("train-churn-model")]
         public async Task<IActionResult> TrainChurnModel(int pageNumber = 1, int pageSize = 10000)
         {
-    
+
             var customerDataBatch = await _customerService.GetAllCustomerWithSalesAsync(pageNumber, pageSize);
 
             if (customerDataBatch == null || !customerDataBatch.Any())
@@ -30,13 +30,13 @@ namespace BigDataForecasting.API.Controllers
                 return BadRequest("Eğitim için yeterli veri bulunamadı!");
             }
 
-        
+
             var trainingData = customerDataBatch.Select(x => x.Input).ToList();
 
-        
+
             byte[] modelFileBytes = _aiTrainerService.TrainAndSaveModel(trainingData);
 
-      
+
             var filePath = Path.Combine(Directory.GetCurrentDirectory(), "ChurnModel.zip");
             await System.IO.File.WriteAllBytesAsync(filePath, modelFileBytes);
 
@@ -125,6 +125,24 @@ namespace BigDataForecasting.API.Controllers
             // Bu işi kuyruğa at ve hemen 'Ok' dön
             BackgroundJob.Enqueue<IAITrainerService>(x => x.TrainAndSaveModelFromDbAsync());
             return Ok("Eğitim işlemi arka planda başlatıldı. Dashboard'dan takip edebilirsin.");
+        }
+        [HttpPost("train-cltv-model")]
+        public IActionResult EnqueueTrainCLTV()
+        {
+            BackgroundJob.Enqueue<IAITrainerService>(x => x.TrainCLTVModelAsync());
+            return Ok("CLTV Modeli Başarı İle Eğitildi Ve Finansal Veriler Analiz Edildi");
+        }
+        [HttpGet("cltv-forecasting-analysis")]
+        public async Task<IActionResult> GetCLTVAnalysis()
+        {
+            var analysis = await _aiTrainerService.GetCLTVPredictionsForAllCustomersAsync();
+            return Ok(analysis);
+        }
+        [HttpGet("get-top-cltv")]
+        public async Task<IActionResult> GetTopCltv()
+        {
+            var analysis = await _aiTrainerService.GetTopCLTVAsync();
+            return Ok(analysis);
         }
     }
 }

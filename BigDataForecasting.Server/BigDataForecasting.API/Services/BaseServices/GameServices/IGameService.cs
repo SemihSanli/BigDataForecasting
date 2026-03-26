@@ -9,5 +9,9 @@ namespace BigDataForecasting.API.Services.BaseServices.GameServices
         Task<ResultGamedetailDto?> GetGameDetailAsync(int gameId);
         Task<List<GamesWithCategoryDto>> GetGamesWithCategoryAsync();
         Task<List<GetAllGamesWithBasicDetailsDto>> GetAllGamesWithBasicDetail();
+        Task<List<GetAllGamesWithDetailsDto>> GetAllGamesWithFullDetailsAsync(int pageNumber = 1,
+     int pageSize = 10,
+     string? searchTerm = null,
+     string? sortBy = null);
     }
 }

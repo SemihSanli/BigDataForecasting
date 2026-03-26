@@ -11,5 +11,11 @@ namespace BigDataForecasting.API.Services.BaseServices.CustomerServices
         Task<List<CustomerWithSalesDto>> GetAllCustomerWithSalesAsync(int pageNumber, int pageSize);
         Task<List<CustomerWithSalesDto>> GetRandomCustomerAsync(int count);
         Task<List<CLTVInput>> GetCLTVTrainingDataAsync();
+        Task<List<GetAllActiveStatusCustomerDto>> GetAllActiveStatusCustomersAsync();
+        Task<List<CustomerByCountryCountDto>> GetCustomerCountByCountryAsync();
+        Task<List<FullCustomerDetailDto>> GetAllCustomersWithFullDetailsAsync(int pageNumber = 1,
+    int pageSize = 10,
+    string? searchTerm = null,
+    string? sortBy = null);
     }
 }

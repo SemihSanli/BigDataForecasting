@@ -1,4 +1,5 @@
 ﻿using BigDataForecasting.API.Services.MLServices;
+using Hangfire;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,9 +17,9 @@ namespace BigDataForecasting.API.Controllers
         }
 
         [HttpPost("train-recommendations")]
-        public async Task<IActionResult> TrainRecommendationModel()
+        public IActionResult TrainRecommendationModel()
         {
-            await _aiTrainerService.TrainRecommendationModelAsync();
+            BackgroundJob.Enqueue<IAITrainerService>(x => x.TrainRecommendationModelAsync());
             return Ok("Öneri sistemi AI modeli başarıyla eğitildi ve zip olarak kaydedildi.");
         }
 

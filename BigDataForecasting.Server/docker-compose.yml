@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  # 1. ÖNBELLEK (REDIS)
+  redis:
+    image: redis:alpine
+    container_name: bigdata_redis
+    ports:
+      - "6379:6379" # Local'den localhost:6379 ile bağlanacaksın
+
+  # 2. METRİK TOPLAYICI (PROMETHEUS)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: bigdata_prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Docker'ın senin PC'ne erişmesini sağlar
+
+  # 3. ŞOV MERKEZİ (GRAFANA)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: bigdata_grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    ports:
+      - "3001:3000" # Local'den localhost:3001 ile gireceksin

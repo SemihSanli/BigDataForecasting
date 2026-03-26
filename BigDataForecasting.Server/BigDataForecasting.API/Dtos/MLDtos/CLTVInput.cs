@@ -11,7 +11,7 @@ namespace BigDataForecasting.API.Dtos.MLDtos
         [LoadColumn(4)] public float WalletBalance { get; set; } // Cüzdanında şu an bekleyen bakiye
 
         // Yapay Zekanın öğrenip tahmin edeceği asıl rakam
-        [LoadColumn(5), ColumnName("Label")]
+        [LoadColumn(5)]
         public float FutureSpendingTarget { get; set; }
     }
 }
