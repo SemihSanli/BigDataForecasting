@@ -2,7 +2,9 @@
 using BigDataForecasting.API.Dtos.WhishlistDtos;
 using BigDataForecasting.API.Entities;
 using BigDataForecasting.API.Repositories;
+using BigDataForecasting.API.Services.Caching;
 using Microsoft.EntityFrameworkCore;
+using static BigDataForecasting.API.Constants.CacheKeys.CacheKeys;
 
 namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
 {
@@ -10,10 +12,12 @@ namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
     {
         private readonly IGenericRepository<WhishList> _whishlistRepository;
         private readonly AppDbContext _appDbContext;
-        public WishlistManager(IGenericRepository<WhishList> whishlistRepository, AppDbContext appDbContext)
+        private readonly IRedisCachingService _redisCachingService;
+        public WishlistManager(IGenericRepository<WhishList> whishlistRepository, AppDbContext appDbContext, IRedisCachingService redisCachingService)
         {
             _whishlistRepository = whishlistRepository;
             _appDbContext = appDbContext;
+            _redisCachingService = redisCachingService;
         }
 
         public async Task AddToWhishlistAsync(int customerId, int gameId)
@@ -49,24 +53,19 @@ namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
             });
 
             await _appDbContext.SaveChangesAsync();
+            await _redisCachingService.RemoveAsync(WishlistKeys.UserWishlist(customerId));
         }
 
         public async Task<List<ResultWishListDto>> GetUserWhishlistAsync(int customerId)
         {
-            //Kullanıcıya göre istek listesini getir en son ekleme tarihine göre
-            return await _whishlistRepository.Where(w => w.CustomerId == customerId)
-               .Select(w => new ResultWishListDto
-               {
-                   WishlistId = w.WishlistId,
-                   GameId = w.GameId,
-                   GameName = w.Game.GameName,
-                   CoverImageUrl = w.Game.CoverImageUrl,
-                   Genre = w.Game.Genre,
-                   Price = w.Game.Price,
-                   AddedDate = w.AddedDate
-               })
-               .OrderByDescending(w => w.AddedDate)
-               .ToListAsync();
+            string cacheKey = WishlistKeys.UserWishlist(customerId);
+            return await _redisCachingService.GetOrAddAsync(cacheKey, async () =>
+            {
+                return await _whishlistRepository.Where(w => w.CustomerId == customerId)
+                   .Select(w => new ResultWishListDto { /* ... */ })
+                   .OrderByDescending(w => w.AddedDate)
+                   .ToListAsync();
+            }, TimeSpan.FromHours(24)); // Ad
         }
 
         public async Task RemoveFromWhishlistAsync(int customerId, int gameId)
@@ -81,6 +80,7 @@ namespace BigDataForecasting.API.Services.BaseServices.WishlistServices
 
             _whishlistRepository.Delete(whishlistItem);
             await _appDbContext.SaveChangesAsync();
+            await _redisCachingService.RemoveAsync(WishlistKeys.UserWishlist(customerId));
         }
     }
 }

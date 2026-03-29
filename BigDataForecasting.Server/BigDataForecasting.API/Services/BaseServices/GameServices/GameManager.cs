@@ -1,56 +1,68 @@
-﻿using BigDataForecasting.API.Dtos.GameDetailDtos;
+using BigDataForecasting.API.Dtos.GameDetailDtos;
 using BigDataForecasting.API.Dtos.GameDtos;
 using BigDataForecasting.API.Entities;
 using BigDataForecasting.API.Repositories;
+using BigDataForecasting.API.Services.Caching;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics.CodeAnalysis;
+using static BigDataForecasting.API.Constants.CacheKeys.CacheKeys;
 
 namespace BigDataForecasting.API.Services.BaseServices.GameServices
 {
     public class GameManager : IGameService
     {
         private readonly IGenericRepository<Game> _gameRepository;
-        public GameManager(IGenericRepository<Game> gameRepository)
+        private readonly IRedisCachingService _redisCachingService;
+        public GameManager(IGenericRepository<Game> gameRepository, IRedisCachingService redisCachingService)
         {
             _gameRepository = gameRepository;
+            _redisCachingService = redisCachingService;
         }
 
         public async Task<List<ResultGameDto>> GetAllGameAsync()
         {
-            return await _gameRepository.GetAll()
-                .Select(g=> new ResultGameDto
-                {
-                    GameName = g.GameName,
-                    Description = g.Description,
-                    Genre = g.Genre,
-                    Price = g.Price,
-                    CoverImageUrl = g.CoverImageUrl,
-                    AverageRating = g.GameStat != null ? g.GameStat.AverageRating : 0,
-                    TotalLibraryAdds = g.GameStat != null ? g.GameStat.TotalLibraryAdds : 0
-                })
-                .ToListAsync();
+            return await _redisCachingService.GetOrAddAsync(GameKeys.All, async () =>
+            {
+                return await _gameRepository.GetAll()
+                    .AsNoTracking()
+                    .Select(g => new ResultGameDto
+                    {
+                        GameName = g.GameName,
+                        Description = g.Description,
+                        Genre = g.Genre,
+                        Price = g.Price,
+                        CoverImageUrl = g.CoverImageUrl,
+                        AverageRating = g.GameStat != null ? g.GameStat.AverageRating : 0,
+                        TotalLibraryAdds = g.GameStat != null ? g.GameStat.TotalLibraryAdds : 0
+                    })
+                    .ToListAsync();
+            }, TimeSpan.FromHours(12));
         }
 
         public async Task<List<GetAllGamesWithBasicDetailsDto>> GetAllGamesWithBasicDetail()
         {
-           return await _gameRepository.GetAll()
-                .Select(g => new GetAllGamesWithBasicDetailsDto
-                {
-                    GameId = g.GameId,
-                    GameName = g.GameName
-                }).ToListAsync();
+            return await _redisCachingService.GetOrAddAsync(GameKeys.AllBasic, async () =>
+            {
+                return await _gameRepository.GetAll()
+                    .AsNoTracking()
+                    .Select(g => new GetAllGamesWithBasicDetailsDto
+                    {
+                        GameId = g.GameId,
+                        GameName = g.GameName,
+                        CoverImageUrl = g.CoverImageUrl
+                    }).ToListAsync();
+            }, TimeSpan.FromDays(1));
         }
 
         public async Task<List<GetAllGamesWithDetailsDto>> GetAllGamesWithFullDetailsAsync(
-     int pageNumber = 1,
+   int pageNumber = 1,
      int pageSize = 10,
      string? searchTerm = null,
      string? sortBy = null)
         {
-            // 1. IQueryable başlatıyoruz
-            var query = _gameRepository.GetAll();
+            // KURAL 1: BURASI CACHE'LENMEZ, SQL'E BIRAKILIR.
+            var query = _gameRepository.GetAll().AsNoTracking();
 
-            // 2. FİLTRELEME
             if (!string.IsNullOrWhiteSpace(searchTerm))
             {
                 searchTerm = searchTerm.ToLower();
@@ -61,7 +73,6 @@ namespace BigDataForecasting.API.Services.BaseServices.GameServices
                 );
             }
 
-            // 3. SIRALAMA
             query = sortBy?.ToLower() switch
             {
                 "price_desc" => query.OrderByDescending(g => g.Price),
@@ -72,7 +83,6 @@ namespace BigDataForecasting.API.Services.BaseServices.GameServices
                 _ => query.OrderByDescending(g => g.GameId)
             };
 
-            // 4. SAYFALAMA VE MAPLEME (DÜZ LİSTE DÖNER)
             return await query
                 .Skip((pageNumber - 1) * pageSize)
                 .Take(pageSize)
@@ -91,44 +101,55 @@ namespace BigDataForecasting.API.Services.BaseServices.GameServices
                     IsMultiplayer = g.GameDetail != null && g.GameDetail.IsMultiplayer,
                     Categories = g.GameCategories.Select(gc => gc.GameCategoryName).ToList()
                 })
-                .ToListAsync(); // Veritabanına gidip sadece o sayfanın verisini List olarak çeker.
+                .ToListAsync(); 
         }
 
         public async Task<ResultGamedetailDto?> GetGameDetailAsync(int gameId)
         {
-            return await _gameRepository.Where(g => g.GameId == gameId)
-                .Select(g => new ResultGamedetailDto
-                {
-                    GameId = g.GameId,
-                    GameName = g.GameName,
-                    Description = g.Description,
-                    Genre = g.Genre,
-                    Price = g.Price,
-                    CoverImageUrl = g.CoverImageUrl,
-                    AverageRating = g.GameStat != null ? g.GameStat.AverageRating : 0,
-                    TotalLibraryAdds = g.GameStat != null ? g.GameStat.TotalLibraryAdds : 0,
-                    Developer = g.GameDetail != null ? g.GameDetail.Developer : null,
-                    ReleaseDate = g.GameDetail != null ? g.GameDetail.ReleaseDate : null,
-                    IsMultiplayer = g.GameDetail != null && g.GameDetail.IsMultiplayer,
-                    GameCategories = g.GameCategories.Select(gc => gc.GameCategoryName).ToList()
-                }).FirstOrDefaultAsync();
+            string cacheKey = GameKeys.Detail(gameId);
+
+            return await _redisCachingService.GetOrAddAsync(cacheKey, async () =>
+            {
+                return await _gameRepository.GetAll()
+                    .AsNoTracking()
+                    .Where(g => g.GameId == gameId)
+                    .Select(g => new ResultGamedetailDto
+                    {
+                        GameId = g.GameId,
+                        GameName = g.GameName,
+                        Description = g.Description,
+                        Genre = g.Genre,
+                        Price = g.Price,
+                        CoverImageUrl = g.CoverImageUrl,
+                        AverageRating = g.GameStat != null ? g.GameStat.AverageRating : 0,
+                        TotalLibraryAdds = g.GameStat != null ? g.GameStat.TotalLibraryAdds : 0,
+                        Developer = g.GameDetail != null ? g.GameDetail.Developer : null,
+                        ReleaseDate = g.GameDetail != null ? g.GameDetail.ReleaseDate : null,
+                        IsMultiplayer = g.GameDetail != null && g.GameDetail.IsMultiplayer,
+                        GameCategories = g.GameCategories.Select(gc => gc.GameCategoryName).ToList()
+                    }).FirstOrDefaultAsync();
+            }, TimeSpan.FromHours(24));
         }
 
         public async Task<List<GamesWithCategoryDto>> GetGamesWithCategoryAsync()
         {
-           return await _gameRepository.GetAll()
-                .Include(gc=>gc.GameCategories)
-                .Select(g=> new GamesWithCategoryDto
-                {
-                    GameId = g.GameId,
-                    GameName = g.GameName,
-                    Description = g.Description,
-                    Genre = g.Genre,
-                    Price = g.Price,
-                    CoverImageUrl = g.CoverImageUrl,
-                    GameCategoryId = g.GameCategories.FirstOrDefault() != null ? g.GameCategories.FirstOrDefault().GameCategoryId : 0,
-                    GameCategoryName = g.GameCategories.FirstOrDefault() != null ? g.GameCategories.FirstOrDefault().GameCategoryName : null
-                }).ToListAsync();
+            return await _redisCachingService.GetOrAddAsync(GameKeys.AllWithCategory, async () =>
+            {
+                return await _gameRepository.GetAll()
+                    .AsNoTracking()
+                    .Include(gc => gc.GameCategories)
+                    .Select(g => new GamesWithCategoryDto
+                    {
+                        GameId = g.GameId,
+                        GameName = g.GameName,
+                        Description = g.Description,
+                        Genre = g.Genre,
+                        Price = g.Price,
+                        CoverImageUrl = g.CoverImageUrl,
+                        GameCategoryId = g.GameCategories.FirstOrDefault() != null ? g.GameCategories.FirstOrDefault().GameCategoryId : 0,
+                        GameCategoryName = g.GameCategories.FirstOrDefault() != null ? g.GameCategories.FirstOrDefault().GameCategoryName : null
+                    }).ToListAsync();
+            }, TimeSpan.FromHours(12));
         }
     }
 }

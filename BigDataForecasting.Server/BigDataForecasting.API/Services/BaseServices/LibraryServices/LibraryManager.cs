@@ -2,7 +2,9 @@
 using BigDataForecasting.API.Dtos.LibraryDtos;
 using BigDataForecasting.API.Entities;
 using BigDataForecasting.API.Repositories;
+using BigDataForecasting.API.Services.Caching;
 using Microsoft.EntityFrameworkCore;
+using static BigDataForecasting.API.Constants.CacheKeys.CacheKeys;
 
 namespace BigDataForecasting.API.Services.BaseServices.LibraryServices
 {
@@ -11,11 +13,13 @@ namespace BigDataForecasting.API.Services.BaseServices.LibraryServices
         private readonly IGenericRepository<Sale> _saleRepository;
         private readonly IGenericRepository<Game> _gameRepository;
         private readonly AppDbContext _appDbContext;
-        public LibraryManager(IGenericRepository<Sale> saleRepository, IGenericRepository<Game> gameRepository, AppDbContext appDbContext)
+        private readonly IRedisCachingService _redisCachingService;
+        public LibraryManager(IGenericRepository<Sale> saleRepository, IGenericRepository<Game> gameRepository, AppDbContext appDbContext, IRedisCachingService redisCachingService)
         {
             _saleRepository = saleRepository;
             _gameRepository = gameRepository;
             _appDbContext = appDbContext;
+            _redisCachingService = redisCachingService;
         }
 
         public async Task AddToLibraryAsync(int customerId, int gameId)
@@ -56,23 +60,22 @@ namespace BigDataForecasting.API.Services.BaseServices.LibraryServices
                 ActivityDate = DateTime.UtcNow
             });
             await _appDbContext.SaveChangesAsync();
+
+            await _redisCachingService.RemoveAsync(LibraryKeys.UserLibrary(customerId));
+            await _redisCachingService.RemoveAsync(SaleKeys.OwnedGames(customerId));
+            await _redisCachingService.RemoveAsync(SaleKeys.Top5Games);
         }
 
         public async Task<List<LibraryGameDto>> GetUserLibraryAsync(int customerId)
         {
-            return await _saleRepository.Where(s => s.CustomerId == customerId)
-                  .Select(s => new LibraryGameDto
-                  {
-                      GameId = s.GameId,
-                      GameName = s.Game.GameName,
-                      CoverImageUrl = s.Game.CoverImageUrl,
-                      Genre = s.Game.Genre,
-                      PlayTimeHours = s.PlayTimeHours,
-                      Rating = s.Rating,
-                      SaleDate = s.SaleDate
-                  })
-                  .OrderByDescending(s => s.SaleDate)
-                  .ToListAsync();
+            string cacheKey = LibraryKeys.UserLibrary(customerId);
+            return await _redisCachingService.GetOrAddAsync(cacheKey, async () =>
+            {
+                return await _saleRepository.Where(s => s.CustomerId == customerId)
+                      .Select(s => new LibraryGameDto { /* ... */ })
+                      .OrderByDescending(s => s.SaleDate)
+                      .ToListAsync();
+            }, TimeSpan.FromHours(24));
         }
 
         public async Task RateGameAsync(int customerId, int gameId, double rating)

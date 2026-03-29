@@ -5,7 +5,7 @@ namespace BigDataForecasting.API.Services.BaseServices.SaleServices
 {
     public interface ISaleService
     {
-        Task<List<ResultSaleDto>> GetAllSalesAsync();
+        Task<List<ResultSaleDto>> GetAllSalesAsync(int pageNumber = 1, int pageSize = 50);
         Task<decimal> GetTotalRevenueAsync();
         Task<LastYearSalesReportDto> GetLastYearSalesReportAsync();
         Task<List<MonthlySalesDto>> GetMonthlySalesAsync();

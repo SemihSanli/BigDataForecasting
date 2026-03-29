@@ -16,9 +16,10 @@ namespace BigDataForecasting.API.Controllers
         }
 
         [HttpGet("GetAllSalesWithDetails")]
-        public async Task<IActionResult> GetAllSalesWithDetails()
+        public async Task<IActionResult> GetAllSalesWithDetails([FromQuery] int pageNumber = 1,
+    [FromQuery] int pageSize = 50)
         {
-            var sales = await _saleService.GetAllSalesAsync();
+            var sales = await _saleService.GetAllSalesAsync(pageNumber,pageSize);
             return Ok(sales);
         }
         [HttpGet("TotalRevenue")]

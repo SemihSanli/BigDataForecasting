@@ -108,6 +108,7 @@ namespace BigDataForecasting.API.Services.BaseServices.CustomerServices
                     }).ToList()
 
                 })
+                .AsSplitQuery()
                 .ToListAsync();
         }
 

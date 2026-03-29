@@ -1,4 +1,6 @@
-﻿using BigDataForecasting.API.Services.MLServices;
+using BigDataForecasting.API.Constants.CacheKeys;
+using BigDataForecasting.API.Services.Caching;
+using BigDataForecasting.API.Services.MLServices;
 using Hangfire;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -10,10 +12,12 @@ namespace BigDataForecasting.API.Controllers
     public class RecommendationsController : ControllerBase
     {
         private readonly IAITrainerService _aiTrainerService;
+        private readonly IRedisCachingService _redisCachingService;
 
-        public RecommendationsController(IAITrainerService aiTrainerService)
+        public RecommendationsController(IAITrainerService aiTrainerService, IRedisCachingService redisCachingService)
         {
             _aiTrainerService = aiTrainerService;
+            _redisCachingService = redisCachingService;
         }
 
         [HttpPost("train-recommendations")]
@@ -34,6 +38,16 @@ namespace BigDataForecasting.API.Controllers
         {
             var result = await _aiTrainerService.GetRandomCustomerRecommendationsAsync();
             return Ok(result);
+        }
+
+        /// <summary>
+        /// Redis'teki öneri önbelleğini temizler. Backend kod değişikliklerinin hemen yansıması için çağırın.
+        /// </summary>
+        [HttpDelete("cache/random-recommendations")]
+        public async Task<IActionResult> ClearRecommendationCache()
+        {
+            await _redisCachingService.RemoveAsync(CacheKeys.ML.RandomRecommendations);
+            return Ok(new { Message = "Öneri önbelleği temizlendi. Bir sonraki istekte yeniden hesaplanacak." });
         }
     }
 }

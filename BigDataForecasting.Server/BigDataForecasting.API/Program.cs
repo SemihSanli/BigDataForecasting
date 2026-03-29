@@ -6,6 +6,7 @@ using BigDataForecasting.API.Services.BaseServices.CustomerServices;
 using BigDataForecasting.API.Services.BaseServices.GameServices;
 using BigDataForecasting.API.Services.BaseServices.GlobeAnalyticsServices;
 using BigDataForecasting.API.Services.BaseServices.SaleServices;
+using BigDataForecasting.API.Services.Caching;
 using BigDataForecasting.API.Services.MLServices;
 using Hangfire;
 using Hangfire.SqlServer;
@@ -15,15 +16,30 @@ using Microsoft.Extensions.ML;
 using Microsoft.IdentityModel.Tokens;
 using Prometheus;
 using Scalar.AspNetCore;
+using StackExchange.Redis;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
-
+ThreadPool.SetMinThreads(200, 200);
 // Db
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
+
+
+//Redis
+var redisSection = builder.Configuration.GetSection("RedisSettings");
+var redisConnectionString = redisSection["ConnectionString"] ?? "localhost:6379";
+
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var options = ConfigurationOptions.Parse(redisConnectionString, true);
+    options.AbortOnConnectFail = false;
+    options.ConnectRetry = 3;
+    return ConnectionMultiplexer.Connect(options);
+});
+
 
 // DI
 builder.Services.AddHangfire(configuration => configuration
@@ -48,6 +64,8 @@ builder.Services.AddScoped<ICustomerService, CustomerManager>();
 builder.Services.AddScoped<IAITrainerService, AITrainerManager>();
 builder.Services.AddScoped<IGlobeAnalyticsService, GlobeAnalyticsManager>();
 
+//Redis Singleton
+builder.Services.AddSingleton<IRedisCachingService, RedisCacheManager>();
 // Auth
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -58,10 +76,23 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateAudience = true,
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
+            ClockSkew = TimeSpan.Zero,
             ValidIssuer = builder.Configuration["JwtSettings:Issuer"],
             ValidAudience = builder.Configuration["JwtSettings:Audience"],
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(builder.Configuration["JwtSettings:SecretKey"]!))
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                var cookeToken = context.Request.Cookies["auth_token"];
+                if (!string.IsNullOrEmpty(cookeToken)) 
+                {
+                    context.Token = cookeToken;
+                }
+                return Task.CompletedTask;
+            }
         };
     });
 
@@ -71,7 +102,8 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowNextjs", policy =>
     {
-        policy.WithOrigins("http://localhost:3000") // Next.js'in çalıştığı varsayılan port
+        policy.WithOrigins("http://localhost:3000", "http://localhost:3001", "http://localhost:5069" ) // Next.js'in çalıştığı varsayılan port
+
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials(); // Eğer ileride cookie/token kullanırsan hayat kurtarır
@@ -107,6 +139,8 @@ if (app.Environment.IsDevelopment())
 
 //app.UseHttpsRedirection();
 
+app.UseStaticFiles();
+
 app.UseCors("AllowNextjs");
 
 app.UseAuthentication();
@@ -116,6 +150,7 @@ app.UseAuthorization();
 app.UseHttpMetrics();
 
 app.MapControllers();
+//Hangfire
 using (var scope = app.Services.CreateScope())
 {
     var recurringJobManager = scope.ServiceProvider.GetRequiredService<IRecurringJobManager>();

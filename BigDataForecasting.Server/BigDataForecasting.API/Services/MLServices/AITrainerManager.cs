@@ -6,10 +6,12 @@ using BigDataForecasting.API.Repositories;
 using BigDataForecasting.API.Services.BaseServices.CustomerServices;
 using BigDataForecasting.API.Services.BaseServices.GameServices;
 using BigDataForecasting.API.Services.BaseServices.SaleServices;
+using BigDataForecasting.API.Services.Caching;
 using Microsoft.Extensions.ML;
 using Microsoft.ML;
 using Microsoft.ML.Trainers;
 using Microsoft.ML.Transforms.TimeSeries;
+using static BigDataForecasting.API.Constants.CacheKeys.CacheKeys;
 
 namespace BigDataForecasting.API.Services.MLServices
 {
@@ -19,282 +21,261 @@ namespace BigDataForecasting.API.Services.MLServices
         private readonly ICustomerService _customerService;
         private readonly ISaleService _saleService;
         private readonly IGameService _gameService;
-        public AITrainerManager(PredictionEnginePool<CustomerChurnInput, CustomerChurnPrediction> predictionEnginePool, ICustomerService customerService, ISaleService saleService, IGameService gameService)
+        private readonly IRedisCachingService _redisCachingService;
+        public AITrainerManager(PredictionEnginePool<CustomerChurnInput, CustomerChurnPrediction> predictionEnginePool, ICustomerService customerService, ISaleService saleService, IGameService gameService, IRedisCachingService redisCachingService)
         {
             _predictionEnginePool = predictionEnginePool;
             _customerService = customerService;
             _saleService = saleService;
             _gameService = gameService;
+            _redisCachingService = redisCachingService;
         }
 
         public async Task<List<AdminCLTVResultDto>> GetCLTVPredictionsForAllCustomersAsync()
         {
-            var mlContext = new MLContext();
-            var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "CLTVModel.zip");
-
-            if (!File.Exists(modelPath))
-                throw new FileNotFoundException("CLTV modeli henüz eğitilmemiş! Önce Train işlemini yapınız.");
-
-            // 1. Modeli yükle ve Tahmin Motorunu (Engine) oluştur
-            var model = mlContext.Model.Load(modelPath, out var modelSchema);
-            var predictionEngine = mlContext.Model.CreatePredictionEngine<CLTVInput, CLTVPrediction>(model);
-
-            // 2. Tahmin yapılacak müşterileri getir (Performans için sadece gerekli alanlar)
-            // Bu metodu daha önce CustomerService içine yazdığını varsayıyorum
-            var customers = await _customerService.GetAllActiveStatusCustomersAsync();
-
-            var results = new List<AdminCLTVResultDto>();
-
-            foreach (var customer in customers)
+            return await _redisCachingService.GetOrAddAsync(ML.AllCLTVPredictions, async () =>
             {
-                // AI'a müşterinin şu anki durumunu veriyoruz
-                var input = new CLTVInput
+                var mlContext = new MLContext();
+                var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "CLTVModel.zip");
+
+                if (!File.Exists(modelPath))
+                    throw new FileNotFoundException("CLTV modeli henüz eğitilmemiş! Önce Train işlemini yapınız.");
+
+                var model = mlContext.Model.Load(modelPath, out var modelSchema);
+                var predictionEngine = mlContext.Model.CreatePredictionEngine<CLTVInput, CLTVPrediction>(model);
+                var customers = await _customerService.GetAllActiveStatusCustomersAsync();
+                var results = new List<AdminCLTVResultDto>();
+
+                foreach (var customer in customers)
                 {
-                    TotalMoneySpentSoFar = customer.TotalSpent,
-                    TotalGamesBoughtSoFar = customer.TotalGames,
-                    WalletBalance = (float)customer.WalletBalance
-                };
+                    var input = new CLTVInput
+                    {
+                        TotalMoneySpentSoFar = customer.TotalSpent,
+                        TotalGamesBoughtSoFar = customer.TotalGames,
+                        WalletBalance = (float)customer.WalletBalance
+                    };
 
-                // YAPAY ZEKA KEHANETİNİ YAPIYOR: "Bu adam bence şu kadar daha harcar"
-                var prediction = predictionEngine.Predict(input);
+                    var prediction = predictionEngine.Predict(input);
 
-                // 3. Segmentasyon Mantığı (Business Logic)
-                string segment = prediction.PredictedFutureValue switch
-                {
-                    > 2000 => "💎 VIP Müşteri",
-                    > 1000 => "🌟 Sadık Müşteri",
-                    > 500 => "📈 Potansiyeli Yüksek",
-                    _ => "👤 Standart"
-                };
+                    string segment = prediction.PredictedFutureValue switch
+                    {
+                        > 2000 => "💎 VIP Müşteri",
+                        > 1000 => "🌟 Sadık Müşteri",
+                        > 500 => "📈 Potansiyeli Yüksek",
+                        _ => "👤 Standart"
+                    };
 
-                results.Add(new AdminCLTVResultDto
-                {
-                    CustomerId = customer.CustomerId,
-                    UserName = customer.UserName,
-                    ProfileImageUrl = customer.ProfileImageUrl,
-                    PredictedFutureValue = (float)Math.Round(prediction.PredictedFutureValue, 2),
-                    CustomerSegment = segment
-                });
-            }
+                    results.Add(new AdminCLTVResultDto
+                    {
+                        CustomerId = customer.CustomerId,
+                        UserName = customer.UserName,
+                        ProfileImageUrl = customer.ProfileImageUrl,
+                        PredictedFutureValue = (float)Math.Round(prediction.PredictedFutureValue, 2),
+                        CustomerSegment = segment
+                    });
+                }
+                return results.OrderByDescending(x => x.PredictedFutureValue).ToList();
 
-            // En yüksek değerden başlayarak sırala (Admin'e en değerlileri önce gösterelim)
-            return results.OrderByDescending(x => x.PredictedFutureValue).ToList();
+            }, TimeSpan.FromHours(2)); 
         }
 
         public async Task<List<AdminUserRecommendationResultDto>> GetGameRecommendationsForUserAsync(int customerId, int topN = 5)
         {
-            var mlContext = new MLContext();
-            var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "GameRecommendationModel.zip");
+            string cacheKey = ML.GameRecommendations(customerId);
 
-            if (!File.Exists(modelPath))
-                throw new FileNotFoundException("Öneri modeli henüz eğitilmemiş! Önce Train işlemi yapınız.");
-
-            // 1. Modeli hızlıca RAM'e yükle
-            var model = mlContext.Model.Load(modelPath, out var modelSchema);
-            var predictionEngine = mlContext.Model.CreatePredictionEngine<GameRecommendationInput, GameRecommendationPrediction>(model);
-
-            // 2. Kullanıcının zaten SAHİP OLDUĞU oyunları getir (DTO listesi olarak geliyor)
-            var ownedGamesDtos = await _saleService.GetOwnedGameIdsByCustomerAsync(customerId);
-            var ownedGameIds = ownedGamesDtos.Select(dto => dto.GameId).ToList(); // Hızlı arama için int listesine çevirdik
-
-            // 3. Sistemdeki TÜM oyunların temel bilgilerini getir
-            var allGames = await _gameService.GetAllGamesWithBasicDetail();
-
-            // 4. Kuyruk yapısı ile en yüksek skorluları tut
-            var recommendations = new PriorityQueue<AdminUserRecommendationResultDto, float>();
-
-            // SADECE adamın SAHİP OLMADIĞI oyunları filtrele ve yapay zekaya sor
-            var unownedGames = allGames.Where(g => !ownedGameIds.Contains(g.GameId));
-
-            foreach (var game in unownedGames)
+            return await _redisCachingService.GetOrAddAsync(cacheKey, async () =>
             {
-                var input = new GameRecommendationInput
-                {
-                    CustomerId = (uint)customerId,
-                    GameId = (uint)game.GameId
-                };
+                var mlContext = new MLContext();
+                var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "GameRecommendationModel.zip");
 
-                var prediction = predictionEngine.Predict(input);
+                if (!File.Exists(modelPath))
+                    throw new FileNotFoundException("Öneri modeli henüz eğitilmemiş! Önce Train işlemi yapınız.");
 
-                // Eğer AI bu oyunu tavsiye ediyorsa (Skor 0'dan büyükse)
-                if (prediction.Score > 0)
-                {
-                    var resultDto = new AdminUserRecommendationResultDto
-                    {
-                        GameId = game.GameId,
-                        GameName = game.GameName, // İsim servisten geliyor
-                        RecommendationScore = prediction.Score
-                    };
+                var model = mlContext.Model.Load(modelPath, out var modelSchema);
+                var predictionEngine = mlContext.Model.CreatePredictionEngine<GameRecommendationInput, GameRecommendationPrediction>(model);
 
-                    // Kuyruğa ekle (Tersten sıralaması için eksi ile veriyoruz)
-                    recommendations.Enqueue(resultDto, -prediction.Score);
-                }
-            }
-
-            // 5. Kuyruktan en iyi Top N (Örn: 5) tanesini çekip dön
-            var topRecommendations = new List<AdminUserRecommendationResultDto>();
-            while (recommendations.Count > 0 && topRecommendations.Count < topN)
-            {
-                topRecommendations.Add(recommendations.Dequeue());
-            }
-
-            return topRecommendations;
-        }
-
-        public async Task<List<DashboardRandomCustomerRecommendationDto>> GetRandomCustomerRecommendationsAsync()
-        {
-            // KURAL: Dashboard her zaman 10 rastgele kişi gösterir ve her birine 3 oyun önerir.
-            int fixedUserCount = 10;
-            int fixedTopN = 3;
-
-            var dashboardResult = new List<DashboardRandomCustomerRecommendationDto>();
-
-            // 1. Sabit 10 rastgele kullanıcıyı çek
-            var randomCustomers = await _customerService.GetRandomCustomerAsync(fixedUserCount);
-            if (!randomCustomers.Any()) return dashboardResult;
-
-            var customerIds = randomCustomers.Select(c => c.CustomerId).ToList();
-
-            // 2. Performans (Toplu İşlem): 10 müşterinin sahip olduğu oyunları TEK SORGuda al
-            var allOwnedGames = await _saleService.GetOwnedGameByMultipleCustomerAsync(customerIds);
-
-            // 3. Tüm oyunları getir
-            var allGames = await _gameService.GetAllGamesWithBasicDetail();
-
-            // 4. ML MODELİNİ YÜKLE
-            var mlContext = new MLContext();
-            var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "GameRecommendationModel.zip");
-            if (!File.Exists(modelPath)) return dashboardResult;
-
-            var model = mlContext.Model.Load(modelPath, out var modelSchema);
-            var predictionEngine = mlContext.Model.CreatePredictionEngine<GameRecommendationInput, GameRecommendationPrediction>(model);
-
-            // 5. RAM üzerinde hızlı eşleştirme
-            foreach (var customer in randomCustomers)
-            {
-                var customerOwnedGameIds = allOwnedGames
-                    .Where(x => x.CustomerId == customer.CustomerId)
-                    .Select(x => x.GameId).ToList();
-
-                var unownedGames = allGames.Where(g => !customerOwnedGameIds.Contains(g.GameId));
-
+                var ownedGamesDtos = await _saleService.GetOwnedGameIdsByCustomerAsync(customerId);
+                var ownedGameIds = ownedGamesDtos.Select(dto => dto.GameId).ToList();
+                var allGames = await _gameService.GetAllGamesWithBasicDetail();
                 var recommendations = new PriorityQueue<AdminUserRecommendationResultDto, float>();
+                var unownedGames = allGames.Where(g => !ownedGameIds.Contains(g.GameId));
 
                 foreach (var game in unownedGames)
                 {
-                    var input = new GameRecommendationInput { CustomerId = (uint)customer.CustomerId, GameId = (uint)game.GameId };
+                    var input = new GameRecommendationInput { CustomerId = (uint)customerId, GameId = (uint)game.GameId };
                     var prediction = predictionEngine.Predict(input);
 
                     if (prediction.Score > 0)
                     {
-                        recommendations.Enqueue(new AdminUserRecommendationResultDto
+                        var resultDto = new AdminUserRecommendationResultDto
                         {
                             GameId = game.GameId,
                             GameName = game.GameName,
-                            RecommendationScore = prediction.Score,
-                            CoverImageUrl = game.CoverImageUrl
-                        }, -prediction.Score);
+                            RecommendationScore = prediction.Score
+                        };
+                        recommendations.Enqueue(resultDto, -prediction.Score);
                     }
                 }
 
                 var topRecommendations = new List<AdminUserRecommendationResultDto>();
-                while (recommendations.Count > 0 && topRecommendations.Count < fixedTopN) // Kural: Herkese en iyi 3 oyun
+                while (recommendations.Count > 0 && topRecommendations.Count < topN)
                 {
                     topRecommendations.Add(recommendations.Dequeue());
                 }
+                return topRecommendations;
 
-                dashboardResult.Add(new DashboardRandomCustomerRecommendationDto
+            }, TimeSpan.FromHours(3)); //
+        }
+
+        public async Task<List<DashboardRandomCustomerRecommendationDto>> GetRandomCustomerRecommendationsAsync()
+        {
+            int poolSize = 50;      // 1. Redis'te saklanacak büyük havuzun boyutu
+            int displayCount = 10;  // 2. Ekranda gösterilecek rastgele kişi sayısı
+            int fixedTopN = 3;      // 3. Her kişiye önerilecek maksimum oyun sayısı
+
+            // --- BÖLÜM 1: HAVUZU HESAPLA VE REDİS'E AT (30 Dakikada 1 Kez Çalışır) ---
+            var recommendationPool = await _redisCachingService.GetOrAddAsync(ML.RandomRecommendations, async () =>
+            {
+                var poolResult = new List<DashboardRandomCustomerRecommendationDto>();
+
+                // Havuz boyutu kadar (50) rastgele kullanıcıyı DB'den çek
+                var randomCustomers = await _customerService.GetRandomCustomerAsync(poolSize);
+                if (!randomCustomers.Any()) return poolResult;
+
+                var customerIds = randomCustomers.Select(c => c.CustomerId).ToList();
+                var allOwnedGames = await _saleService.GetOwnedGameByMultipleCustomerAsync(customerIds);
+                var allGames = await _gameService.GetAllGamesWithBasicDetail();
+
+                var mlContext = new MLContext();
+                var modelPath = Path.Combine(Directory.GetCurrentDirectory(), "GameRecommendationModel.zip");
+                if (!File.Exists(modelPath)) return poolResult;
+
+                var model = mlContext.Model.Load(modelPath, out var modelSchema);
+                var predictionEngine = mlContext.Model.CreatePredictionEngine<GameRecommendationInput, GameRecommendationPrediction>(model);
+
+                // 50 Kişilik havuzdaki herkes için ML tahminlerini yap
+                foreach (var customer in randomCustomers)
                 {
-                    CustomerId = customer.CustomerId,
-                    UserName = customer.UserName,
-                    ProfileImageUrl = customer.ProfileImageUrl,
-                    RecommendedGames = topRecommendations
-                });
-            }
+                    var customerOwnedGameIds = allOwnedGames.Where(x => x.CustomerId == customer.CustomerId).Select(x => x.GameId).ToList();
+                    var unownedGames = allGames.Where(g => !customerOwnedGameIds.Contains(g.GameId));
+                    var recommendations = new PriorityQueue<AdminUserRecommendationResultDto, float>();
 
-            return dashboardResult;
+                    foreach (var game in unownedGames)
+                    {
+                        var input = new GameRecommendationInput { CustomerId = (uint)customer.CustomerId, GameId = (uint)game.GameId };
+                        var prediction = predictionEngine.Predict(input);
+
+                        if (prediction.Score > 0)
+                        {
+                            recommendations.Enqueue(new AdminUserRecommendationResultDto
+                            {
+                                GameId = game.GameId,
+                                GameName = game.GameName,
+                                RecommendationScore = prediction.Score,
+                                CoverImageUrl = game.CoverImageUrl
+                            }, -prediction.Score);
+                        }
+                    }
+
+                    var topRecommendations = new List<AdminUserRecommendationResultDto>();
+                    while (recommendations.Count > 0 && topRecommendations.Count < fixedTopN)
+                    {
+                        topRecommendations.Add(recommendations.Dequeue());
+                    }
+
+                    poolResult.Add(new DashboardRandomCustomerRecommendationDto
+                    {
+                        CustomerId = customer.CustomerId,
+                        UserName = customer.UserName,
+                        ProfileImageUrl = customer.ProfileImageUrl,
+                        RecommendedGames = topRecommendations
+                    });
+                }
+
+                // Hesaplanan 50 kişilik listeyi Redis'e veriyoruz
+                return poolResult;
+
+            }, TimeSpan.FromMinutes(30));
+
+
+            // --- BÖLÜM 2: HAVUZDAN RASTGELE SEÇİM YAP (Her İstekte Anlık Çalışır) ---
+
+            // Eğer Redis'ten gelen havuz boşsa direkt boş liste dön
+            if (recommendationPool == null || !recommendationPool.Any())
+                return new List<DashboardRandomCustomerRecommendationDto>();
+
+            // 50 Kişilik havuzu RAM üzerinde karıştır (Guid.NewGuid) ve 10 tanesini (displayCount) seç
+            var randomTenForDashboard = recommendationPool
+                .OrderBy(x => Guid.NewGuid())
+                .Take(displayCount)
+                .ToList();
+
+            return randomTenForDashboard;
         }
 
         public async Task<GetTopCLTVDto> GetTopCLTVAsync()
         {
-            var allPredictions = await GetCLTVPredictionsForAllCustomersAsync();
-
-            // 2. LINQ ile saniyeler içinde grupluyoruz
-            var summary = new GetTopCLTVDto
+            return await _redisCachingService.GetOrAddAsync(Dashboard.TopCltv, async () =>
             {
-                TotalCustomerCount = allPredictions.Count,
-                VipCount = allPredictions.Count(x => x.CustomerSegment == "💎 VIP Müşteri"),
-                LoyalCount = allPredictions.Count(x => x.CustomerSegment == "🌟 Sadık Müşteri"),
-                PotentialCount = allPredictions.Count(x => x.CustomerSegment == "📈 Potansiyeli Yüksek"),
+                var allPredictions = await GetCLTVPredictionsForAllCustomersAsync();
 
-                // En yüksek değerli 5 VIP
-                TopVips = allPredictions
-                    .Where(x => x.CustomerSegment == "💎 VIP Müşteri")
-                    .Take(5).ToList(),
+                var summary = new GetTopCLTVDto
+                {
+                    TotalCustomerCount = allPredictions.Count,
+                    VipCount = allPredictions.Count(x => x.CustomerSegment == "💎 VIP Müşteri"),
+                    LoyalCount = allPredictions.Count(x => x.CustomerSegment == "🌟 Sadık Müşteri"),
+                    PotentialCount = allPredictions.Count(x => x.CustomerSegment == "📈 Potansiyeli Yüksek"),
+                    TopVips = allPredictions.Where(x => x.CustomerSegment == "💎 VIP Müşteri").Take(5).ToList(),
+                    TopPotentialCustomers = allPredictions.Where(x => x.CustomerSegment == "📈 Potansiyeli Yüksek").Take(5).ToList()
+                };
+                return summary;
 
-                // En yüksek değerli 5 Potansiyel (Bunlara kampanya yapmak için)
-                TopPotentialCustomers = allPredictions
-                    .Where(x => x.CustomerSegment == "📈 Potansiyeli Yüksek")
-                    .Take(5).ToList()
-            };
-
-            return summary;
+            }, TimeSpan.FromHours(1));
         }
 
         public async Task<List<RiskyCustomerResult>> GetTopRiskyCustomerAsync()
         {
-            // En yüksek riskli 20 kişiyi tutmak için öncelikli kuyruğumuz.
-            var topRiskyQueue = new PriorityQueue<RiskyCustomerResult, double>();
-            int maxTopCount = 20;
-
-            int pageNumber = 1;
-            int pageSize = 5000;
-            bool hasMoreData = true;
-
-            while (hasMoreData)
+            return await _redisCachingService.GetOrAddAsync(ML.TopRiskyCustomers, async () =>
             {
-                // Sadece 3 ana kolonun dolu geldiğinden emin olduğumuz servis çağrısı.
-                var pagedCustomers = await _customerService.GetAllCustomerWithSalesAsync(pageNumber, pageSize);
+                var topRiskyQueue = new PriorityQueue<RiskyCustomerResult, double>();
+                int maxTopCount = 20;
+                int pageNumber = 1;
+                int pageSize = 5000;
+                bool hasMoreData = true;
 
-                if (pagedCustomers == null || !pagedCustomers.Any())
+                while (hasMoreData)
                 {
-                    hasMoreData = false;
-                    break;
-                }
-
-                foreach (var customerData in pagedCustomers)
-                {
-                    var prediction = _predictionEnginePool.Predict(modelName: "ChurnModel", example: customerData.Input);
-                    var riskPercentage = Math.Round(prediction.Probability * 100, 2);
-
-                    var result = new RiskyCustomerResult
+                    var pagedCustomers = await _customerService.GetAllCustomerWithSalesAsync(pageNumber, pageSize);
+                    if (pagedCustomers == null || !pagedCustomers.Any())
                     {
-                        CustomerId = customerData.CustomerId,
-                        UserName = customerData.UserName,
-                        RiskPercentage = riskPercentage,
-                        RawScore = prediction.Score
-                    };
-
-                    // DEĞİŞİKLİK 1: Öncelik (priority) olarak artık Score veriyoruz!
-                    topRiskyQueue.Enqueue(result, prediction.Score);
-
-                    if (topRiskyQueue.Count > maxTopCount)
-                    {
-                        topRiskyQueue.Dequeue();
+                        hasMoreData = false;
+                        break;
                     }
+
+                    foreach (var customerData in pagedCustomers)
+                    {
+                        var prediction = _predictionEnginePool.Predict(modelName: "ChurnModel", example: customerData.Input);
+                        var riskPercentage = Math.Round(prediction.Probability * 100, 2);
+
+                        var result = new RiskyCustomerResult
+                        {
+                            CustomerId = customerData.CustomerId,
+                            UserName = customerData.UserName,
+                            RiskPercentage = riskPercentage,
+                            RawScore = prediction.Score
+                        };
+
+                        topRiskyQueue.Enqueue(result, prediction.Score);
+                        if (topRiskyQueue.Count > maxTopCount) topRiskyQueue.Dequeue();
+                    }
+                    pageNumber++;
                 }
-                pageNumber++;
-            }
 
-            // Kuyruktaki verileri listeye aktarıyoruz.
-            var finalResult = new List<RiskyCustomerResult>();
-            while (topRiskyQueue.Count > 0)
-            {
-                finalResult.Add(topRiskyQueue.Dequeue());
-            }
+                var finalResult = new List<RiskyCustomerResult>();
+                while (topRiskyQueue.Count > 0) finalResult.Add(topRiskyQueue.Dequeue());
+                return finalResult.OrderByDescending(x => x.RawScore).ToList();
 
-            // En riskliyi en üstte görecek şekilde sıralayıp dönüyoruz.
-            return finalResult.OrderByDescending(x => x.RawScore).ToList();
+            }, TimeSpan.FromHours(2));
         }
 
         //public async Task<CustomerChurnPrediction> PredictionCustomerChurnAsync(int customerId)
@@ -324,37 +305,35 @@ namespace BigDataForecasting.API.Services.MLServices
 
         public async Task<List<float>> PredictionNextMonthsRevenueAsync()
         {
-            var historicalSales = await _saleService.GetMonthlySalesAsync();
-
-            if (historicalSales.Count < 12)
+            return await _redisCachingService.GetOrAddAsync(ML.RevenueForecast, async () =>
             {
-                throw new InvalidOperationException("Yapay zekanın mevsimselliği öğrenebilmesi için en az 12 aylık satış geçmişine ihtiyacı var!");
-            }
+                var historicalSales = await _saleService.GetMonthlySalesAsync();
 
-            var mlData = historicalSales.Select(x => new MonthlyRevenueData
-            {
-                Revenue = (float)x.TotalRevenue
-            }).ToList();
+                if (historicalSales.Count < 12)
+                    throw new InvalidOperationException("Yapay zekanın mevsimselliği öğrenebilmesi için en az 12 aylık satış geçmişine ihtiyacı var!");
 
-            var mlContext = new MLContext(seed: 0);
-            var dataView = mlContext.Data.LoadFromEnumerable(mlData);
+                var mlData = historicalSales.Select(x => new MonthlyRevenueData { Revenue = (float)x.TotalRevenue }).ToList();
+                var mlContext = new MLContext(seed: 0);
+                var dataView = mlContext.Data.LoadFromEnumerable(mlData);
 
-            var pipeline = mlContext.Forecasting.ForecastBySsa(
-                outputColumnName: nameof(RevenueForecastPrediction.ForecastedRevenues),
-                inputColumnName: nameof(MonthlyRevenueData.Revenue),
-                windowSize: 12,
-                seriesLength: mlData.Count,
-                trainSize: mlData.Count,
-                horizon: 3,
-                confidenceLevel: 0.95f,
-                confidenceLowerBoundColumn: "LowerBound",
-                confidenceUpperBoundColumn: "UpperBound");
+                var pipeline = mlContext.Forecasting.ForecastBySsa(
+                    outputColumnName: nameof(RevenueForecastPrediction.ForecastedRevenues),
+                    inputColumnName: nameof(MonthlyRevenueData.Revenue),
+                    windowSize: 12,
+                    seriesLength: mlData.Count,
+                    trainSize: mlData.Count,
+                    horizon: 3,
+                    confidenceLevel: 0.95f,
+                    confidenceLowerBoundColumn: "LowerBound",
+                    confidenceUpperBoundColumn: "UpperBound");
 
-            var model = pipeline.Fit(dataView);
-            var forecastingEngine = model.CreateTimeSeriesEngine<MonthlyRevenueData, RevenueForecastPrediction>(mlContext);
-            var forecast = forecastingEngine.Predict();
+                var model = pipeline.Fit(dataView);
+                var forecastingEngine = model.CreateTimeSeriesEngine<MonthlyRevenueData, RevenueForecastPrediction>(mlContext);
+                var forecast = forecastingEngine.Predict();
 
-            return forecast.ForecastedRevenues.ToList();
+                return forecast.ForecastedRevenues.ToList();
+
+            }, TimeSpan.FromDays(1)); // Aylık
         }
 
         public byte[] TrainAndSaveModel(List<CustomerChurnInput> trainingData)
@@ -391,70 +370,60 @@ namespace BigDataForecasting.API.Services.MLServices
             int pageSize = 10000;
             bool hasMoreData = true;
 
-
             while (hasMoreData)
             {
                 var batch = await _customerService.GetAllCustomerWithSalesAsync(pageNumber, pageSize);
-
-                if (batch == null || !batch.Any())
-                {
-                    hasMoreData = false; // Veri bitti, döngüden çık
-                }
+                if (batch == null || !batch.Any()) hasMoreData = false;
                 else
                 {
-                    // Gelen paketteki Input'ları ana listeye ekle
                     allTrainingData.AddRange(batch.Select(x => x.Input));
                     pageNumber++;
                 }
             }
 
-
             if (allTrainingData.Count == 0) return;
 
-
             var modelBytes = TrainAndSaveModel(allTrainingData);
-
-
             var filePath = Path.Combine(Directory.GetCurrentDirectory(), "ChurnModel.zip");
             await File.WriteAllBytesAsync(filePath, modelBytes);
+
+            // ÇOK KRİTİK: Churn modeli güncellendiğine göre, riskli müşteriler listesi eski kaldı. Sil gitsin!
+            await _redisCachingService.RemoveAsync(ML.TopRiskyCustomers);
         }
 
         public async Task TrainCLTVModelAsync()
         {
             var trainingData = await _customerService.GetCLTVTrainingDataAsync();
-
             if (trainingData == null || !trainingData.Any()) return;
 
             var mlContext = new MLContext(seed: 0);
             IDataView dataView = mlContext.Data.LoadFromEnumerable(trainingData);
 
-            // 2. Regresyon Pipeline'ı (Hangi özelliklere bakıp, neyi tahmin edeceğini söylüyoruz)
             var pipeline = mlContext.Transforms.Concatenate("Features",
                     nameof(CLTVInput.TotalMoneySpentSoFar),
                     nameof(CLTVInput.TotalGamesBoughtSoFar),
                     nameof(CLTVInput.WalletBalance))
                 .Append(mlContext.Regression.Trainers.FastTree(
-                    labelColumnName: nameof(CLTVInput.FutureSpendingTarget), // Hedefimiz (Gelecekteki Para)
+                    labelColumnName: nameof(CLTVInput.FutureSpendingTarget),
                     featureColumnName: "Features"));
 
-            // 3. Modeli Eğit (Verideki örüntüleri öğrenir)
             var trainedModel = pipeline.Fit(dataView);
-
-            // 4. Modeli Finans Uzmanı olarak kaydet :)
             var filePath = Path.Combine(Directory.GetCurrentDirectory(), "CLTVModel.zip");
             mlContext.Model.Save(trainedModel, dataView.Schema, filePath);
+
+            // ÇOK KRİTİK: CLTV Modeli güncellendi. Eski tahminlerin hiçbir anlamı kalmadı. Temizle!
+            await _redisCachingService.RemoveAsync(Dashboard.TopCltv);
+            await _redisCachingService.RemoveAsync(ML.AllCLTVPredictions);
         }
 
         public async Task TrainRecommendationModelAsync()
         {
             var trainingData = await _saleService.GetGameRecommendationDataAsync();
-
             if (trainingData == null || !trainingData.Any()) return;
 
             var mlContext = new MLContext(seed: 0);
             IDataView dataView = mlContext.Data.LoadFromEnumerable(trainingData);
 
-            // Öneri Sistemi Pipeline'ı (Matris Çarpanlarına Ayırma)
             var pipeline = mlContext.Transforms.Conversion.MapValueToKey(outputColumnName: "CustomerIdEncoded", inputColumnName: nameof(GameRecommendationInput.CustomerId))
                 .Append(mlContext.Transforms.Conversion.MapValueToKey(outputColumnName: "GameIdEncoded", inputColumnName: nameof(GameRecommendationInput.GameId)))
                 .Append(mlContext.Recommendation().Trainers.MatrixFactorization(new MatrixFactorizationTrainer.Options
@@ -463,15 +432,15 @@ namespace BigDataForecasting.API.Services.MLServices
                     MatrixRowIndexColumnName = "GameIdEncoded",
                     LabelColumnName = nameof(GameRecommendationInput.Label),
                     NumberOfIterations = 20,
-                    ApproximationRank = 100 // Hassasiyet derinliği
+                    ApproximationRank = 100
                 }));
 
-            // Modeli Eğit
             var trainedModel = pipeline.Fit(dataView);
-
-            // Modeli Diske Kaydet
             var filePath = Path.Combine(Directory.GetCurrentDirectory(), "GameRecommendationModel.zip");
             mlContext.Model.Save(trainedModel, dataView.Schema, filePath);
+
+            // ÇOK KRİTİK: Öneri mekanizması değişti. Dashboard'daki ve genel listelerdeki önerileri patlat!
+            await _redisCachingService.RemoveAsync(ML.RandomRecommendations);
         }
     }
 }

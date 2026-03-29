@@ -41,7 +41,21 @@ namespace BigDataForecasting.API.Controllers
             try
             {
                 var result = await _authService.LoginAsync(dto);
-                return Ok(result);
+                //Client'e token'ın  cookie üzerinden gitmesini sağlamak için CookieOptions ekledim.
+                var cookieOptions = new CookieOptions
+                {
+                    HttpOnly = true,
+                    Secure = true,
+                    SameSite = SameSiteMode.None,
+                    Expires = DateTime.UtcNow.AddMinutes(60)
+                };
+                Response.Cookies.Append("auth_token", result.Token, cookieOptions);
+                return Ok(new
+                {
+                    Username = result.UserName,
+                    Role = result.Role,
+                    Message = "Giriş başarılı,token güvenli bir şekilde cookie'ye yazıldı"
+                });
             }
             catch (Exception ex) when (ex.Message.Contains("Invalid") || ex.Message.Contains("hatalı") || ex.Message.Contains("inactive"))
             {
