@@ -710,13 +710,8 @@ Redis entegrasyonunun sisteme olan katkısını matematiksel olarak kanıtlamak 
 
 | 🔴 Darboğaz (Redis Kapalı / Direct SQL) | 🟢 Optimizasyon (Redis Açık / Cache Hit) |
 | :---: | :---: |
-| <img src="docs/redis-off.png" width="500" alt="Redis Kapalı Grafana Metrikleri"> | <img src="docs/redis-on.png" width="500" alt="Redis Açık Grafana Metrikleri"> |
+|<img src="https://github.com/user-attachments/assets/596c40c1-829f-4fd2-94a0-bdc21875b3e3" width="500" alt="Redis Kapalı Grafana Metrikleri"> | <img src="https://github.com/user-attachments/assets/f55aa28b-ef82-4a16-8342-1ed512085b6a" width="500" alt="Redis Açık Grafana Metrikleri"> | |
 | *Veritabanına binen ağır yük ve artan yanıt süreleri (Spikes)* | *İstikrarlı milisaniyelik yanıtlar ve sıfıra inen DB maliyeti* |
-
-<img width="3334" height="1618" alt="Ekran görüntüsü 2026-03-29 150722" src="https://github.com/user-attachments/assets/596c40c1-829f-4fd2-94a0-bdc21875b3e3" />
-
-<img width="3789" height="1873" alt="Ekran görüntüsü 2026-03-29 152249" src="https://github.com/user-attachments/assets/f55aa28b-ef82-4a16-8342-1ed512085b6a" />
-
 
 > **Not:** *Yukarıdaki metrikler Prometheus tarafından toplanmış ve Grafana üzerinden görselleştirilmiştir.*
 
