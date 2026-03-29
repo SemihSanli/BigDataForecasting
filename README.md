@@ -371,6 +371,21 @@ var customers = await _context.Customers
     .ToListAsync();
 ```
 
+#### 3. Mapster vs. Manuel LINQ Projection (Over-Fetching Koruması)
+
+```csharp
+// ❌ Mapster Auto-Mapping (Tüm veriyi RAM'e çeker)
+var report = await _context.Sales.ProjectToType<SaleReportDto>().ToListAsync();
+
+// ✅ Manuel Projection (Sadece gereken kolonlar)
+var report = await _context.Sales
+    .Select(s => new SaleReportDto { 
+        TotalRevenue = s.SoldPrice, 
+        Date = s.SaleDate 
+    })
+    .ToListAsync();
+```
+
 **📊 SQL Profiler Sonuçları:**
 - Single Query: 8.7 saniye, 1.2GB temp memory
 - Split Query: 1.3 saniye, 180MB temp memory
@@ -615,32 +630,6 @@ useEffect(() => {
 
 ## 🔐 Güvenlik
 
-### 🔒 JWT Authentication Flow
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant API as Backend API
-    participant DB as Database
-    participant Redis as Redis Cache
-
-    C->>API: POST /api/Auths/login {username, password}
-    API->>DB: SELECT * FROM Customers WHERE UserName = ?
-    DB-->>API: Customer entity
-    API->>API: BCrypt.Verify(password, hash)
-    API->>API: TokenManager.GenerateToken(userId, role)
-    API->>C: Set-Cookie: auth_token=JWT; HttpOnly; Secure; SameSite=None
-    C->>API: GET /api/Dashboard (credentials: include)
-    API->>API: Read JWT from Cookie
-    API->>API: Validate Token (Issuer, Audience, Expiry)
-    API->>Redis: Check cache
-    Redis-->>API: Cached data or null
-    API->>DB: Query if cache miss
-    DB-->>API: Fresh data
-    API->>Redis: Update cache
-    API->>C: JSON Response
-```
-
 ### 🛡️ Güvenlik Katmanları
 
 #### 1. Password Hashing (BCrypt)
@@ -679,186 +668,60 @@ Response.Cookies.Append("auth_token", jwtToken, cookieOptions);
 
 #### 3. CORS Policy
 
+```markdown
+#### 3. CORS Politikası & Dışa Kapalı Mimari
+
 ```csharp
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowNextjs", policy =>
     {
-        policy.WithOrigins(
-            "http://localhost:3000",   // Next.js Dev
-            "http://localhost:3001",   // Alternative Port
-            "https://yourdomain.com"   // Production
-        )
+        policy.WithOrigins("http://localhost:3000", "[https://yourdomain.com](https://yourdomain.com)")
         .AllowAnyHeader()
         .AllowAnyMethod()
-        .AllowCredentials();  // Cookie support
+        .AllowCredentials(); // Cookie transferine izin ver
     });
 });
 ```
 
-**🔒 Whitelist Approach:**
-- Sadece belirtilen origin'lere izin
-- `AllowCredentials()` ile cookie desteği
-- Production'da wildcard (`*`) kullanılmadı
 
-#### 4. SQL Injection Koruması
 
-```csharp
-// ✅ Parameterized Queries (EF Core)
-var customer = await _context.Customers
-    .Where(c => c.UserName == username)  // Safe: Parameterized
-    .FirstOrDefaultAsync();
 
-// ❌ String Interpolation (ASLA YAPMA!)
-var query = $"SELECT * FROM Customers WHERE UserName = '{username}'";
-```
+## 🐳 Docker Altyapısı & Gerçek Zamanlı İzleme (Monitoring)
 
----
+Sistemin önbellek mekanizmasını ve API performansını anlık olarak izleyebilmek, ayrıca darboğazları (bottleneck) tespit edebilmek için mikroservis yaklaşımıyla bir izleme ekosistemi kurulmuştur.
 
-## 📦 Kurulum
+### 🛠️ Container Mimarisi (Docker)
+Altyapı bağımlılıkları tamamen izole edilerek Docker üzerinden ayağa kaldırılmıştır:
+* **Redis:** Yüksek performanslı In-Memory Caching operasyonları için.
+* **Prometheus:** .NET API üzerinden fırlatılan metrikleri (Request süreleri, HTTP durum kodları, CPU/RAM kullanımı) toplamak için.
+* **Grafana:** Prometheus'tan toplanan bu zaman serisi verilerini (time-series data) görsel ve interaktif dashboard'lara dönüştürmek için.
 
-### 📋 Gereksinimler
+### 📊 Redis Performans Testi & Grafana Benchmark
+Redis entegrasyonunun sisteme olan katkısını matematiksel olarak kanıtlamak adına özel bir stres testi (Load Test) uygulanmıştır:
 
-| Bileşen | Versiyon | İndirme Linki |
-|---------|----------|---------------|
-| .NET SDK | 10.0+ | [dotnet.microsoft.com](https://dotnet.microsoft.com/download) |
-| Node.js | 20.0+ | [nodejs.org](https://nodejs.org/) |
-| SQL Server | 2022 | [microsoft.com/sql-server](https://www.microsoft.com/sql-server) |
-| Redis | 7.0+ | [redis.io](https://redis.io/download) |
-| Docker | 24.0+ | [docker.com](https://www.docker.com/) |
+1. **Test Senaryosu:** Sistemdeki en ağır endpoint'lere (Dashboard, Top CLTV, Sales) terminal üzerinden 5 saniye gecikmeli olacak şekilde **100 adet ardışık istek** yollanmıştır.
+2. **Karşılaştırma (A/B Testi):** Bu test, **Redis kapalıyken (Direct SQL Load)** ve **Redis açıkken (Cache Hit)** olmak üzere iki farklı durumda tekrarlanmıştır.
+3. **Sonuç:** Grafana panellerinden alınan anlık metriklerde, Redis aktivasyonu sonrasında yanıt sürelerinde (Latency) ve veritabanı yükünde (CPU/IO) yaşanan dramatik düşüş tespit edilmiş ve fotoğraflanarak dökümante edilmiştir *(Bkz. Performans Görselleri)*.
 
----
 
-### 🚀 Backend Kurulumu
 
-#### 1. Repository'yi Klonlayın
+### Aşağıdaki grafikler, API'ye yapılan **100 eşzamanlı istek (5 saniye gecikmeli)** altındaki sistem davranışını göstermektedir. Redis'in devreye girmesiyle birlikte API yanıt sürelerindeki (Latency) ve veritabanı yükündeki dramatik düşüş net bir şekilde görülmektedir.
 
-```bash
-git clone https://github.com/yourusername/BigDataForecasting.git
-cd BigDataForecasting/BigDataForecasting.API
-```
+| 🔴 Darboğaz (Redis Kapalı / Direct SQL) | 🟢 Optimizasyon (Redis Açık / Cache Hit) |
+| :---: | :---: |
+| <img src="docs/redis-off.png" width="500" alt="Redis Kapalı Grafana Metrikleri"> | <img src="docs/redis-on.png" width="500" alt="Redis Açık Grafana Metrikleri"> |
+| *Veritabanına binen ağır yük ve artan yanıt süreleri (Spikes)* | *İstikrarlı milisaniyelik yanıtlar ve sıfıra inen DB maliyeti* |
 
-#### 2. appsettings.Development.json Oluşturun
+<img width="3334" height="1618" alt="Ekran görüntüsü 2026-03-29 150722" src="https://github.com/user-attachments/assets/596c40c1-829f-4fd2-94a0-bdc21875b3e3" />
 
-```json
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=BigDataForecastingDb;Trusted_Connection=True;TrustServerCertificate=True;"
-  },
-  "JwtSettings": {
-    "SecretKey": "YourSuperSecretKeyMinimum32Characters!",
-    "Issuer": "BigDataForecastingAPI",
-    "Audience": "BigDataForecastingClient",
-    "ExpirationMinutes": 1440
-  },
-  "RedisSettings": {
-    "ConnectionString": "localhost:6379"
-  }
-}
-```
+<img width="3789" height="1873" alt="Ekran görüntüsü 2026-03-29 152249" src="https://github.com/user-attachments/assets/f55aa28b-ef82-4a16-8342-1ed512085b6a" />
 
-#### 3. Database Migration
 
-```bash
-# EF Core Tools yüklü değilse
-dotnet tool install --global dotnet-ef
+> **Not:** *Yukarıdaki metrikler Prometheus tarafından toplanmış ve Grafana üzerinden görselleştirilmiştir.*
 
-# Migration oluştur
-dotnet ef migrations add InitialCreate
 
-# Database'i oluştur
-dotnet ef database update
-```
 
-#### 4. Redis & Docker Servislerini Başlatın
-
-```bash
-# Redis
-docker run -d -p 6379:6379 --name redis redis:7-alpine
-
-# Prometheus
-docker run -d -p 9090:9090 --name prometheus \
-  -v $(pwd)/prometheus.yml:/etc/prometheus/prometheus.yml \
-  prom/prometheus
-
-# Grafana
-docker run -d -p 3001:3000 --name grafana grafana/grafana
-```
-
-#### 5. Backend'i Çalıştırın
-
-```bash
-dotnet restore
-dotnet run
-
-# API: https://localhost:7198
-# Scalar Docs: https://localhost:7198/scalar/v1
-# Hangfire: https://localhost:7198/hangfire
-```
-
----
-
-### 🎨 Frontend Kurulumu
-
-#### 1. Frontend Dizinine Geçin
-
-```bash
-cd ../big-data-dashboard
-```
-
-#### 2. .env.local Oluşturun
-
-```env
-NEXT_PUBLIC_API_URL=https://localhost:7198
-```
-
-#### 3. Bağımlılıkları Yükleyin
-
-```bash
-npm install
-# veya
-yarn install
-```
-
-#### 4. Development Server'ı Başlatın
-
-```bash
-npm run dev
-# veya
-yarn dev
-
-# Frontend: http://localhost:3000
-```
-
----
-
-### 🎯 İlk Kullanıcı Oluşturma
-
-#### 1. Postman/Scalar ile Register
-
-```bash
-POST https://localhost:7198/api/Auths/register
-Content-Type: application/json
-
-{
-  "userName": "admin",
-  "email": "admin@bigdata.com",
-  "password": "Admin123!",
-  "firstName": "Admin",
-  "lastName": "User",
-  "role": "Admin"
-}
-```
-
-#### 2. Frontend'den Login
-
-```
-http://localhost:3000/auth
-Username: admin
-Password: Admin123!
-```
-
----
 
 ## 📊 API Dokümantasyonu
 
@@ -956,127 +819,17 @@ https://localhost:7198/scalar/v1
 
 ---
 
-## 🎯 Kullanım Senaryoları
 
-### 📊 Senaryo 1: Dashboard'u İlk Açış
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant API as Backend
-    participant R as Redis
-    participant DB as Database
-
-    U->>F: http://localhost:3000/dashboard
-    F->>API: 12 Parallel Requests (allSettled)
-    
-    par Cache Hit
-        API->>R: GET "customer:all_active"
-        R-->>API: 1,000 (cached)
-    and Cache Hit
-        API->>R: GET "sale:top_5_games"
-        R-->>API: Top 5 games (cached)
-    and Cache Miss
-        API->>R: GET "ml:dashboard_random_recs"
-        R-->>API: null
-        API->>DB: Complex ML query
-        DB-->>API: 5 users + recommendations
-        API->>R: SET "ml:dashboard_random_recs" (30 min TTL)
-    end
-    
-    API-->>F: JSON responses
-    F->>U: Render dashboard (187ms total)
-```
-
-**⚡ Performans:**
-- İlk yükleme (cold cache): ~2.1 saniye
-- Sonraki yüklemeler (warm cache): ~187ms
-- Cache hit rate: %95+
-
----
-
-### 🎮 Senaryo 2: Oyun Öneri Sistemi
-
-```mermaid
-graph LR
-    A[User Login] --> B[Dashboard Load]
-    B --> C{Redis Cache?}
-    C -->|Hit| D[Return Cached 5 Users]
-    C -->|Miss| E[Query Database]
-    E --> F[Get 50 Random Customers]
-    F --> G[Load ML Model .zip]
-    G --> H[Matrix Factorization]
-    H --> I[Score All Games]
-    I --> J[Top 3 per User]
-    J --> K[Store 50 in Redis]
-    K --> L[Random Pick 5]
-    L --> M[Return to Frontend]
-    D --> M
-    M --> N[Animated Beam Visualization]
-```
-
-**🎯 Akış:**
-1. Redis'te `ml:dashboard_random_recs` key'i kontrol edilir
-2. Cache hit → 50 kişilik havuzdan rastgele 5'i seç
-3. Cache miss → 50 kişiye ML prediction yap, Redis'e yaz (30 dk TTL)
-4. Frontend: AnimatedBeam ile kullanıcı-oyun bağlantılarını görselleştir
-
----
-
-### 💎 Senaryo 3: CLTV Segmentasyon
-
-```python
-# Pseudo-code for CLTV calculation
-def calculate_cltv(customer):
-    features = {
-        'total_spent': customer.sales.sum(price),
-        'total_games': customer.sales.count(),
-        'days_since_last_purchase': (today - customer.last_purchase_date).days,
-        'avg_session_time': customer.activities.avg(session_minutes),
-        'cart_abandonment_rate': customer.abandoned_carts / customer.total_carts,
-        'wishlist_size': customer.wishlists.count(),
-        'avg_rating_given': customer.ratings.avg(),
-        'referral_count': customer.referrals.count()
-    }
-    
-    prediction = cltv_model.predict(features)
-    
-    if prediction > 1000:
-        return "💎 VIP Müşteri"
-    elif prediction > 500:
-        return "🌟 Sadık Müşteri"
-    elif prediction > 100:
-        return "📈 Potansiyeli Yüksek"
-    else:
-        return "👤 Standart"
-```
-
-**📊 Çıktı:**
-```json
-{
-  "totalCustomerCount": 1000,
-  "vipCount": 87,
-  "loyalCount": 234,
-  "potentialCount": 412,
-  "topVips": [
-    {
-      "customerId": 42,
-      "userName": "ProGamer2024",
-      "predictedFutureValue": 2450.75,
-      "customerSegment": "💎 VIP Müşteri"
-    }
-  ]
-}
-```
 
 ---
 
 ## 📸 Ekran Görüntüleri
 
 ### 🏠 Dashboard (Ana Sayfa)
+<img width="1411" height="2350" alt="Ekran görüntüsü 2026-03-29 173211" src="https://github.com/user-attachments/assets/ef41299c-dcae-43ad-b820-a1c277573162" />
+<img width="1204" height="1689" alt="Ekran görüntüsü 2026-03-29 173217" src="https://github.com/user-attachments/assets/77c4f847-615d-4836-b4ad-f318b8556415" />
 
-![Dashboard](https://via.placeholder.com/1200x600/050505/D4AF37?text=Dashboard+Screenshot)
+
 
 **Özellikler:**
 - 🌍 3D Interactive Globe (ülke bazlı kullanıcı dağılımı)
@@ -1089,7 +842,9 @@ def calculate_cltv(customer):
 
 ### 👥 Müşteriler Sayfası
 
-![Customers](https://via.placeholder.com/1200x600/111111/D4AF37?text=Customers+Page)
+
+<img width="1416" height="2309" alt="Ekran görüntüsü 2026-03-29 173509" src="https://github.com/user-attachments/assets/e3d5c4d0-674e-4be2-a42f-86a4560def40" />
+<img width="357" height="466" alt="Ekran görüntüsü 2026-03-29 173548" src="https://github.com/user-attachments/assets/949fc34a-676b-427e-ab37-d4eb4ccaa020" />
 
 **Özellikler:**
 - 🎴 Flip Cards (hover ile ön/arka yüz)
@@ -1101,7 +856,9 @@ def calculate_cltv(customer):
 
 ### 🎮 Oyun Mağazası
 
-![Store](https://via.placeholder.com/1200x600/050505/FFD700?text=Game+Store)
+
+<img width="1403" height="2374" alt="Ekran görüntüsü 2026-03-29 173306" src="https://github.com/user-attachments/assets/6a0c98f5-d7ff-4e54-bde6-02a0582d9ad6" />
+
 
 **Özellikler:**
 - 🎴 3D Card Effect (mouse tracking)
@@ -1113,7 +870,8 @@ def calculate_cltv(customer):
 
 ### 📈 Tahminleme Sayfası
 
-![Forecasting](https://via.placeholder.com/1200x600/111111/D4AF37?text=Forecasting+Charts)
+
+<img width="1400" height="2375" alt="Ekran görüntüsü 2026-03-29 173234" src="https://github.com/user-attachments/assets/21b40e1e-8237-4459-8316-ee1e2b6345c4" />
 
 **Özellikler:**
 - 📊 7+ Recharts grafiği
@@ -1126,7 +884,10 @@ def calculate_cltv(customer):
 
 ### 🔐 Login/Register
 
-![Auth](https://via.placeholder.com/1200x600/050505/D4AF37?text=Authentication+Page)
+<img width="2516" height="1247" alt="Ekran görüntüsü 2026-03-29 192926" src="https://github.com/user-attachments/assets/8133d95f-dc9e-4a9f-bef7-6451bc3066d0" />
+<img width="2502" height="1244" alt="Ekran görüntüsü 2026-03-29 192931" src="https://github.com/user-attachments/assets/1f76a1b1-ff4f-4ea1-9b88-c1c5e8e72bc7" />
+
+
 
 **Özellikler:**
 - ✨ Background Beams animasyonu
@@ -1136,245 +897,9 @@ def calculate_cltv(customer):
 
 ---
 
-## 🚀 Deployment
 
-### 🐳 Docker Deployment
 
-#### 1. Dockerfile (Backend)
 
-```dockerfile
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
-WORKDIR /app
-EXPOSE 80
-EXPOSE 443
-
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
-WORKDIR /src
-COPY ["BigDataForecasting.API/BigDataForecasting.API.csproj", "BigDataForecasting.API/"]
-RUN dotnet restore "BigDataForecasting.API/BigDataForecasting.API.csproj"
-COPY . .
-WORKDIR "/src/BigDataForecasting.API"
-RUN dotnet build "BigDataForecasting.API.csproj" -c Release -o /app/build
-
-FROM build AS publish
-RUN dotnet publish "BigDataForecasting.API.csproj" -c Release -o /app/publish
-
-FROM base AS final
-WORKDIR /app
-COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "BigDataForecasting.API.dll"]
-```
-
-#### 2. Dockerfile (Frontend)
-
-```dockerfile
-FROM node:20-alpine AS base
-
-FROM base AS deps
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run build
-
-FROM base AS runner
-WORKDIR /app
-ENV NODE_ENV production
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-
-EXPOSE 3000
-ENV PORT 3000
-CMD ["node", "server.js"]
-```
-
-#### 3. docker-compose.yml
-
-```yaml
-version: '3.8'
-
-services:
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    environment:
-      - ACCEPT_EULA=Y
-      - SA_PASSWORD=YourStrong!Password
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqldata:/var/opt/mssql
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-
-  backend:
-    build:
-      context: .
-      dockerfile: BigDataForecasting.API/Dockerfile
-    ports:
-      - "5000:80"
-    depends_on:
-      - sqlserver
-      - redis
-    environment:
-      - ConnectionStrings__DefaultConnection=Server=sqlserver;Database=BigDataForecastingDb;User Id=sa;Password=YourStrong!Password;TrustServerCertificate=True;
-      - RedisSettings__ConnectionString=redis:6379
-
-  frontend:
-    build:
-      context: ./big-data-dashboard
-      dockerfile: Dockerfile
-    ports:
-      - "3000:3000"
-    depends_on:
-      - backend
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:80
-
-  prometheus:
-    image: prom/prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3001:3000"
-    depends_on:
-      - prometheus
-
-volumes:
-  sqldata:
-  redisdata:
-```
-
-#### 4. Deployment Komutları
-
-```bash
-# Build & Start
-docker-compose up -d
-
-# Logs
-docker-compose logs -f backend
-
-# Stop
-docker-compose down
-
-# Rebuild
-docker-compose up -d --build
-```
-
----
-
-### ☁️ Azure Deployment (Production)
-
-#### 1. Azure Resources
-
-```bash
-# Resource Group
-az group create --name BigDataForecastingRG --location eastus
-
-# SQL Database
-az sql server create --name bigdataforecastingserver --resource-group BigDataForecastingRG --location eastus --admin-user sqladmin --admin-password YourStrong!Password
-az sql db create --resource-group BigDataForecastingRG --server bigdataforecastingserver --name BigDataForecastingDb --service-objective S1
-
-# Redis Cache
-az redis create --name bigdataforecastingredis --resource-group BigDataForecastingRG --location eastus --sku Basic --vm-size c0
-
-# App Service (Backend)
-az appservice plan create --name BigDataForecastingPlan --resource-group BigDataForecastingRG --sku B1 --is-linux
-az webapp create --resource-group BigDataForecastingRG --plan BigDataForecastingPlan --name bigdataforecastingapi --runtime "DOTNETCORE:10.0"
-
-# Static Web App (Frontend)
-az staticwebapp create --name bigdataforecastingfrontend --resource-group BigDataForecastingRG --source https://github.com/yourusername/BigDataForecasting --branch main --app-location "/big-data-dashboard" --output-location ".next"
-```
-
-#### 2. Connection Strings (Azure Portal)
-
-```
-DefaultConnection: Server=tcp:bigdataforecastingserver.database.windows.net,1433;Initial Catalog=BigDataForecastingDb;Persist Security Info=False;User ID=sqladmin;Password=YourStrong!Password;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
-
-RedisConnection: bigdataforecastingredis.redis.cache.windows.net:6380,password=YourRedisAccessKey,ssl=True,abortConnect=False
-```
-
----
-
-## 🤝 Katkıda Bulunma
-
-### 🐛 Bug Raporu
-
-Bir hata bulduysanız, lütfen aşağıdaki bilgileri içeren bir [Issue](https://github.com/yourusername/BigDataForecasting/issues) açın:
-
-- **Hata Açıklaması:** Ne olması gerekiyordu, ne oldu?
-- **Adımlar:** Hatayı nasıl tekrar üretebiliriz?
-- **Ekran Görüntüsü:** Varsa ekleyin
-- **Ortam:** OS, .NET version, Browser
-
-### ✨ Feature Request
-
-Yeni bir özellik önerisi için:
-
-1. [Discussions](https://github.com/yourusername/BigDataForecasting/discussions) bölümünde tartışma açın
-2. Use case'i detaylı açıklayın
-3. Mockup/wireframe ekleyin (opsiyonel)
-
-### 🔧 Pull Request
-
-1. Fork yapın
-2. Feature branch oluşturun (`git checkout -b feature/AmazingFeature`)
-3. Commit atın (`git commit -m 'Add some AmazingFeature'`)
-4. Push yapın (`git push origin feature/AmazingFeature`)
-5. Pull Request açın
-
-**📝 PR Checklist:**
-- [ ] Kod clean ve okunabilir
-- [ ] XML comments eklendi (C#)
-- [ ] Unit testler yazıldı
-- [ ] README güncellendi
-- [ ] Breaking change yok
-
----
-
-## 📄 Lisans
-
-Bu proje **MIT License** altında lisanslanmıştır. Detaylar için [LICENSE](LICENSE) dosyasına bakın.
-
-```
-MIT License
-
-Copyright (c) 2026 [Your Name]
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
----
 
 ## 🙏 Teşekkürler
 
@@ -1389,31 +914,6 @@ Bu proje aşağıdaki açık kaynak projelerden ilham almıştır:
 
 ---
 
-## 📞 İletişim
 
-**Proje Sahibi:** [Your Name]
-
-- 📧 Email: your.email@example.com
-- 💼 LinkedIn: [linkedin.com/in/yourprofile](https://linkedin.com/in/yourprofile)
-- 🐦 Twitter: [@yourhandle](https://twitter.com/yourhandle)
-- 🌐 Website: [yourwebsite.com](https://yourwebsite.com)
-
-**Proje Linki:** [https://github.com/yourusername/BigDataForecasting](https://github.com/yourusername/BigDataForecasting)
-
----
-
-## 🌟 Yıldız Geçmişi
-
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/BigDataForecasting&type=Date)](https://star-history.com/#yourusername/BigDataForecasting&Date)
-
----
-
-<div align="center">
-
-### 💖 Bu projeyi beğendiyseniz yıldız vermeyi unutmayın!
-
-**Made with ❤️ using .NET 10, ML.NET, Next.js & Cursor AI**
-
-[⬆ Başa Dön](#-big-data-forecasting-platform)
 
 </div>
