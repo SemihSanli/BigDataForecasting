@@ -220,7 +220,7 @@ Model → "Bu kullanıcı Cyberpunk 2077'yi %89 olasılıkla beğenir"
 ```
 
 **🔄 Güncelleme Stratejisi:**
-- Hangfire ile her gece 04:00'te otomatik eğitim
+- Hangfire ile her gece 03:00 ile 04:00'te otomatik eğitim
 - Yeni satış verisi eklendiğinde manuel tetikleme
 - Redis cache temizleme post-training
 
