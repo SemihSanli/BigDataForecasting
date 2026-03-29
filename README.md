@@ -543,6 +543,11 @@ public async Task<List<FullCustomerDetailDto>> GetAllCustomersWithFullDetailsAsy
 
 **🎬 Kullanım:** Customers sayfasında interaktif profil kartları
 
+
+### 🤖 AI-Assisted Frontend Development (Cursor & Sonnet 4.6)
+
+## Frontendi tasarlarken tamamen Cursor üzerinden Sonnet 4.6 yardımıyla yaptım. Backend ve frontend arasında olabildiğince güvenli ve performanslı bir bağlantı kurmaya çalıştım.
+
 ---
 
 ### 📊 Recharts Grafik Örnekleri
